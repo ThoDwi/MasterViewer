@@ -76,7 +76,7 @@
   <div class="btn-group">
     <button class="live-btn" id="btnFire">🔥 Live-Brände</button>
     <button class="live-btn" id="btnRain">🌧️ Regen-Radar</button>
-    <button class="live-btn" id="btnBlocks">🚫 Sperrungen im Bild</button>
+    <button class="live-btn" id="btnBlocks">🚫 Sperrungen auf Track</button>
   </div>
 
   <label class="file-btn">
@@ -93,7 +93,7 @@
   let map;
   let layerControl;
   let trackLayersMap = {};
-  let trackPointsList = []; 
+  let trackPointsList = []; // Nur die echten Trackpunkte der GPX
   
   let fireLayer = null;
   let rainLayer = null;
@@ -148,25 +148,6 @@
         }
       });
     });
-  }
-
-  function getDistanceMeters(lat1, lon1, lat2, lon2) {
-    const R = 6371000;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon/2) * Math.sin(dLon/2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  }
-
-  function isPointNearTrack(lat, lon, maxDistanceMeters = 150) {
-    if (trackPointsList.length === 0) return true;
-    for (let i = 0; i < trackPointsList.length; i += 4) {
-      const dist = getDistanceMeters(lat, lon, trackPointsList[i][0], trackPointsList[i][1]);
-      if (dist <= maxDistanceMeters) return true;
-    }
-    return false;
   }
 
   // 1. LIVE-BRÄNDE
@@ -236,35 +217,46 @@
     }
   }
 
-  // 3. SPERRUNGEN (STABIL: PRÜFT AKTUELLEN KARTENAUSSCHNITT)
+  // 3. EXAKTE SPPERRUNGEN NUR AUF DEM TRACK (MAX 25M ABSTAND)
   async function toggleRouteBlocks() {
     const btn = document.getElementById('btnBlocks');
     if (blocksLayer) {
       map.removeLayer(blocksLayer);
       blocksLayer = null;
       btn.classList.remove('active');
-      btn.innerText = "🚫 Sperrungen im Bild";
+      btn.innerText = "🚫 Sperrungen auf Track";
       return;
     }
 
-    const bounds = map.getBounds();
-    btn.innerText = "⏳ Suche im Ausschnitt...";
-    const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
+    if (trackPointsList.length === 0) {
+      alert("Bitte lade zuerst eine GPX-Datei hoch!");
+      return;
+    }
+
+    btn.innerText = "⏳ Prüfe Track...";
+
+    // Wir dünnen die Punkte etwas aus (jeder 15. Punkt), damit die Abfrage schnell bleibt
+    const sampledPoints = [];
+    for (let i = 0; i < trackPointsList.length; i += 15) {
+      sampledPoints.push(trackPointsList[i]);
+    }
+
+    // Erstelle den exakten "around"-Polyline-Filter (25 Meter Radius um die GPX-Linie)
+    const polyCoords = sampledPoints.map(p => `${p[0]},${p[1]}`).join(',');
     
-    // Timeout erhöht auf 60s, Abfrage optimiert
-    const query = `[out:json][timeout:60];
+    const query = `[out:json][timeout:30];
       (
-        way["highway"="construction"](${bbox});
-        way["highway"="closed"](${bbox});
-        way["access"="no"](${bbox});
+        way["highway"="construction"](around:25,${polyCoords});
+        way["highway"="closed"](around:25,${polyCoords});
+        way["access"="no"](around:25,${polyCoords});
       );
       out center;`;
-    
+
     const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
 
     try {
       const res = await fetch(url);
-      if (!res.ok) throw new Error("Server Auslastung");
+      if (!res.ok) throw new Error("Serverfehler");
       const data = await res.json();
 
       blocksLayer = L.layerGroup();
@@ -274,14 +266,14 @@
         const lat = el.lat || (el.center ? el.center.lat : null);
         const lon = el.lon || (el.center ? el.center.lon : null);
 
-        if (lat && lon && isPointNearTrack(lat, lon, 150)) {
-          const type = el.tags.highway || el.tags.access || "Gesperrte Straße / Baustelle";
+        if (lat && lon) {
+          const type = el.tags.highway || el.tags.access || "Gesperrter Streckenabschnitt";
           const name = el.tags.name ? `<b>${el.tags.name}</b><br>` : '';
-          
+
           const marker = L.circleMarker([lat, lon], {
-            radius: 8, fillColor: "#ea580c", color: "#9a3412", weight: 2, fillOpacity: 0.9
-          }).bindPopup(`<b>🚫 Sperrung / Baustelle</b><br>${name}Typ: ${type}`);
-          
+            radius: 8, fillColor: "#ea580c", color: "#9a3412", weight: 2, fillOpacity: 0.95
+          }).bindPopup(`<b>🚫 Sperrung direkt auf deiner Route</b><br>${name}Typ: ${type}`);
+
           blocksLayer.addLayer(marker);
           count++;
         }
@@ -290,9 +282,13 @@
       blocksLayer.addTo(map);
       btn.classList.add('active');
       btn.innerText = `🚫 Sperrungen (${count})`;
+
+      if (count === 0) {
+        alert("Gute Nachricht: Keine bekannten Straßensperren direkt auf deiner GPX-Strecke gefunden!");
+      }
     } catch (e) {
-      alert("Tipp: Zoome etwas näher an deinen aktuellen Fahrtag heran und versuche es erneut!");
-      btn.innerText = "🚫 Sperrungen im Bild";
+      alert("Fehler bei der Abfrage. Versuch es evtl. noch einmal.");
+      btn.innerText = "🚫 Sperrungen auf Track";
     }
   }
 
@@ -329,7 +325,7 @@
         if (!isNaN(lat) && !isNaN(lon)) {
           coords.push([lat, lon]);
           allBounds.push([lat, lon]);
-          trackPointsList.push([lat, lon]);
+          trackPointsList.push([lat, lon]); // Exakter Speicherort aller GPX-Punkte
         }
       });
 
