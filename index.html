@@ -53,7 +53,7 @@
       z-index: 1;
     }
 
-    /* Styling für das Ebenen-Menü & Buttons */
+    /* Positionierung und Styling des Ebenen-Menüs */
     .leaflet-top.leaflet-right {
       top: 10px !important;
       right: 10px !important;
@@ -81,8 +81,8 @@
 
     .toggle-list-btn {
       background: #e2e8f0; color: #0f172a; font-weight: bold; border: 1px solid #94a3b8;
-      padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; text-align: center;
-      margin-bottom: 6px; display: block; width: 100%;
+      padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; text-align: center;
+      width: 100%;
     }
 
     .layers-collapsed .leaflet-control-layers-overlays,
@@ -148,11 +148,14 @@
     };
 
     layerControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
+    
+    // Buttons direkt nach Map-Initialisierung aufrufen
+    addControlButtons();
 
     setTimeout(() => { map.invalidateSize(); }, 300);
   }
 
-  // BUTTONS "ALLE WÄHLEN / ABWÄHLEN / EINKLAPPEN" EINFÜGEN
+  // EINFÜGEN DER BEDIENBUTTONS (ALLE WÄHLEN / ABWÄHLEN / EINKLAPPEN)
   function addControlButtons() {
     const container = document.querySelector('.leaflet-control-layers');
     if (!container || document.getElementById('bulk-select-actions')) return;
@@ -300,57 +303,3 @@
 
     let waypoints = Array.from(xmlDoc.getElementsByTagName("wpt"));
     if (waypoints.length === 0) waypoints = Array.from(xmlDoc.getElementsByTagNameNS("*", "wpt"));
-
-    waypoints.forEach((wpt, i) => {
-      const lat = parseFloat(wpt.getAttribute("lat"));
-      const lon = parseFloat(wpt.getAttribute("lon"));
-      let nameEl = wpt.getElementsByTagName("name")[0] || wpt.getElementsByTagNameNS("*", "name")[0];
-      let descEl = wpt.getElementsByTagName("desc")[0] || wpt.getElementsByTagNameNS("*", "desc")[0];
-      
-      const name = nameEl ? nameEl.textContent : `Wegpunkt ${i + 1}`;
-      const desc = descEl ? descEl.textContent : '';
-
-      if (!isNaN(lat) && !isNaN(lon)) {
-        allBounds.push([lat, lon]);
-        const circleMarker = L.circleMarker([lat, lon], {
-          radius: 8, fillColor: "#dc2626", color: "#7f1d1d", weight: 2, fillOpacity: 0.9
-        }).bindPopup(`<b>${name}</b><br>${desc}`);
-
-        circleMarker.addTo(map);
-        const label = `<span style="color:#dc2626; font-weight:bold;">🔴</span> ${name}`;
-        overlayMaps[label] = circleMarker;
-        trackLayersMap['wpt_' + i] = circleMarker;
-      }
-    });
-
-    layerControl = L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
-    addControlButtons();
-
-    if (allBounds.length > 0) { 
-      map.fitBounds(L.latLngBounds(allBounds), { padding: [50, 50] }); 
-    }
-  }
-
-  window.onload = function() {
-    initMap();
-
-    window.addEventListener('resize', () => {
-      if (map) map.invalidateSize();
-    });
-
-    document.getElementById('btnFire').addEventListener('click', toggleFireData);
-    document.getElementById('btnRain').addEventListener('click', toggleRainRadar);
-
-    document.getElementById('fileInput').addEventListener('change', function(e) {
-      const file = e.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = e => parseGPXText(e.target.result);
-        reader.readAsText(file);
-      }
-    });
-  };
-</script>
-
-</body>
-</html>
