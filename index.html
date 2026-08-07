@@ -3,25 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GPX & Live-Data Master Viewer</title>
+  <title>Live & GPX Viewer</title>
   
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
   <style>
     * { box-sizing: border-box; }
     html, body {
       margin: 0; padding: 0;
-      height: 100vh; width: 100vw;
+      height: 100%; width: 100%;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       overflow: hidden;
+      background: #0f172a;
     }
-    #app { display: flex; flex-direction: column; height: 100%; width: 100%; }
     
     header {
-      background: #0f172a; color: white; padding: 10px 16px;
+      height: 55px;
+      background: #0f172a; color: white; padding: 0 16px;
       display: flex; justify-content: space-between; align-items: center;
-      z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      flex-wrap: wrap; gap: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      z-index: 1000; position: relative;
     }
     header h1 { margin: 0; font-size: 16px; font-weight: 600; }
 
@@ -42,80 +43,63 @@
     .file-btn:hover { background: #0369a1; }
     input[type="file"] { display: none; }
 
-    #map { flex: 1; width: 100%; height: 100%; background: #e2e8f0; }
-
-    .leaflet-control-layers {
-      border-radius: 8px !important;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.15) !important;
-      padding: 10px 12px !important;
-      font-size: 13px !important;
-      max-height: 75vh; overflow-y: auto;
+    #map {
+      width: 100vw;
+      height: calc(100vh - 55px);
+      background: #cbd5e1;
     }
-    .layer-action-btns {
-      display: flex; gap: 6px; margin-bottom: 8px; padding-bottom: 8px;
-      border-bottom: 1px solid #cbd5e1;
-    }
-    .layer-action-btn {
-      background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155;
-      padding: 5px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
-      cursor: pointer; flex: 1; text-align: center;
-    }
-    .layer-action-btn:hover { background: #0284c7; color: white; border-color: #0284c7; }
   </style>
 </head>
 <body>
 
-<div id="app">
-  <header>
-    <h1>🗺️ Live & GPX Viewer</h1>
-    
-    <div class="btn-group">
-      <button class="live-btn" id="btnFire">🔥 Live-Brände (NASA)</button>
-      <button class="live-btn" id="btnRain">🌧️ Regen-Radar</button>
-      <button class="live-btn" id="btnGas">⛽ Tankstellen suchen</button>
-    </div>
+<header>
+  <h1>🗺️ Live & GPX Viewer</h1>
+  
+  <div class="btn-group">
+    <button class="live-btn" id="btnFire">🔥 Live-Brände (Pyrenäen/EU)</button>
+    <button class="live-btn" id="btnRain">🌧️ Regen-Radar</button>
+    <button class="live-btn" id="btnGas">⛽ Tankstellen</button>
+  </div>
 
-    <label class="file-btn">
-      📂 GPX-Datei laden
-      <input type="file" id="fileInput" accept=".gpx">
-    </label>
-  </header>
+  <label class="file-btn">
+    📂 GPX laden
+    <input type="file" id="fileInput" accept=".gpx">
+  </label>
+</header>
 
-  <div id="map"></div>
-</div>
+<div id="map"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
   let map;
   let layerControl;
   let trackLayersMap = {};
   
-  // Spezial-Ebenen
   let fireLayer = null;
   let rainLayer = null;
   let gasLayer = null;
 
-  const colors = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#f59e0b', '#06b6d4'];
+  const colors = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#f59e0b'];
 
   function initMap() {
-    map = L.map('map', { zoomControl: true }).setView([42.6, 1.5], 7); // Pyrenäen als Startansicht
+    // Startkoordinaten: Pyrenäen
+    map = L.map('map').setView([42.6, 1.5], 7);
 
-    const cartoTile = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19, attribution: '© OpenStreetMap, © CARTO'
+    // Standard OpenStreetMap Tile Layer
+    const osmTile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
     }).addTo(map);
 
-    const osmTile = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19, attribution: '© OpenStreetMap'
-    });
-
-    const baseMaps = { "Standard (Carto)": cartoTile, "OpenStreetMap": osmTile };
+    const baseMaps = { "OpenStreetMap": osmTile };
     layerControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
 
-    setTimeout(() => { map.invalidateSize(); }, 300);
+    // Karten-Größe nach Laden abgleichen
+    setTimeout(() => { map.invalidateSize(); }, 200);
   }
 
-  // 1. LIVE-BRÄNDE VIA NASA GEONODE / NASA FIRMS API
+  // 1. LIVE-BRÄNDE
   async function toggleFireData() {
     const btn = document.getElementById('btnFire');
     if (fireLayer) {
@@ -127,40 +111,33 @@
 
     btn.innerText = "⏳ Lade Brände...";
     try {
-      // WFS GeoJSON Stream der NASA FIRMS VIIRS 24h Daten
-      const url = "https://firms.modaps.eosdis.nasa.gov/api/area/csv/8d3ef711018596634c03aa0a012a6f44/VIIRS_SNPP_NRT/world/1";
+      // USGS/EONET Live Fire Feed
+      const res = await fetch('https://eonet.gsfc.nasa.gov/api/v3/events?category=wildfires');
+      const data = await res.json();
+
+      fireLayer = L.layerGroup();
       
-      // Nutze offenes Proxy/GeoJSON Feed für direkte Browser-Anzeige
-      const response = await fetch('https://raw.githubusercontent.com/datasets/geo-boundaries/master/data/geo.json'); 
-      
-      // Ersatzweise strukturierter Direkt-Query für Westeuropa (Spanien/Frankreich/Pyrenäen)
-      const fireGeoJsonUrl = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"; // Fallback demo Structure
+      data.events.forEach(event => {
+        event.geometry.forEach(geo => {
+          if (geo.type === "Point") {
+            const marker = L.circleMarker([geo.coordinates[1], geo.coordinates[0]], {
+              radius: 9, fillColor: "#dc2626", color: "#7f1d1d", weight: 2, fillOpacity: 0.9
+            }).bindPopup(`<b>🔥 ${event.title}</b><br>Datum: ${new Date(geo.date).toLocaleDateString()}`);
+            fireLayer.addLayer(marker);
+          }
+        });
+      });
 
-      // Wir bauen einen direkten Feed von NASA FIRMS Open GeoJSON
-      const nasaGeoJson = await fetch("https://services9.arcgis.com/RHVP1212f4uhHG9M/arcgis/rest/services/USA_Wildfires_v1/FeatureServer/0/query?where=1%3D1&outFields=*&outSR=4326&f=geojson");
-      const data = await nasaGeoJson.json();
-
-      fireLayer = L.geoJSON(data, {
-        pointToLayer: function (feature, latlng) {
-          return L.circleMarker(latlng, {
-            radius: 8, fillColor: "#dc2626", color: "#7f1d1d", weight: 2, opacity: 1, fillOpacity: 0.9
-          });
-        },
-        onEachFeature: function (feature, layer) {
-          const props = feature.properties;
-          layer.bindPopup(`<b>🔥 Aktiver Brandherd</b><br>Gefunden: ${props.IncidentName || 'Satelliten-Anomalie'}`);
-        }
-      }).addTo(map);
-
+      fireLayer.addTo(map);
       btn.classList.add('active');
       btn.innerText = "🔥 Live-Brände (Aktiv)";
     } catch (e) {
-      alert("Hinweis: Live-Satellitendaten werden geladen. Falls die NASA-Schnittstelle blockiert, nutze die direkte KML.");
-      btn.innerText = "🔥 Live-Brände (NASA)";
+      alert("Fehler beim Abrufen der Live-Branddaten.");
+      btn.innerText = "🔥 Live-Brände (Pyrenäen/EU)";
     }
   }
 
-  // 2. REGEN-RADAR VIA RAINVIEWER API
+  // 2. REGEN-RADAR
   async function toggleRainRadar() {
     const btn = document.getElementById('btnRain');
     if (rainLayer) {
@@ -172,8 +149,8 @@
 
     btn.innerText = "⏳ Lade Radar...";
     try {
-      const response = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-      const data = await response.json();
+      const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+      const data = await res.json();
       const latestPath = data.radar.past[data.radar.past.length - 1].path;
 
       rainLayer = L.tileLayer(`https://tilecache.rainviewer.com${latestPath}/256/{z}/{x}/{y}/2/1_1.png`, {
@@ -183,5 +160,102 @@
       btn.classList.add('active');
       btn.innerText = "🌧️ Regen-Radar (Aktiv)";
     } catch (e) {
-      alert("Fehler beim Laden des Regen-Radars.");
+      alert("Fehler beim Abrufen des Niederschlagsradars.");
       btn.innerText = "🌧️ Regen-Radar";
+    }
+  }
+
+  // 3. TANKSTELLEN
+  async function fetchGasStations() {
+    const btn = document.getElementById('btnGas');
+    if (gasLayer) {
+      map.removeLayer(gasLayer);
+      gasLayer = null;
+      btn.classList.remove('active');
+      return;
+    }
+
+    btn.innerText = "⏳ Suche Tankstellen...";
+    const bounds = map.getBounds();
+    const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
+    const query = `[out:json];node["amenity"="fuel"](${bbox});out;`;
+    const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+
+      gasLayer = L.layerGroup();
+      data.elements.forEach(node => {
+        const marker = L.circleMarker([node.lat, node.lon], {
+          radius: 6, fillColor: "#059669", color: "#065f46", weight: 2, fillOpacity: 0.9
+        }).bindPopup(`<b>⛽ ${node.tags.name || 'Tankstelle'}</b><br>${node.tags.operator || ''}`);
+        gasLayer.addLayer(marker);
+      });
+
+      gasLayer.addTo(map);
+      btn.classList.add('active');
+      btn.innerText = `⛽ Tankstellen (${data.elements.length})`;
+    } catch (e) {
+      alert("Fehler beim Suchen der Tankstellen.");
+      btn.innerText = "⛽ Tankstellen";
+    }
+  }
+
+  // GPX DATEIEN PARSEN
+  function parseGPXText(xmlString) {
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+
+    let tracks = Array.from(xmlDoc.getElementsByTagName("trk"));
+    if (tracks.length === 0) tracks = Array.from(xmlDoc.getElementsByTagNameNS("*", "trk"));
+
+    const allBounds = [];
+
+    tracks.forEach((track, i) => {
+      let nameEl = track.getElementsByTagName("name")[0] || track.getElementsByTagNameNS("*", "name")[0];
+      const name = nameEl ? nameEl.textContent : `Track ${i + 1}`;
+      const color = colors[i % colors.length];
+
+      let trkpts = Array.from(track.getElementsByTagName("trkpt"));
+      if (trkpts.length === 0) trkpts = Array.from(track.getElementsByTagNameNS("*", "trkpt"));
+
+      const coords = [];
+      trkpts.forEach(pt => {
+        const lat = parseFloat(pt.getAttribute("lat"));
+        const lon = parseFloat(pt.getAttribute("lon"));
+        if (!isNaN(lat) && !isNaN(lon)) {
+          coords.push([lat, lon]);
+          allBounds.push([lat, lon]);
+        }
+      });
+
+      if (coords.length > 0) {
+        const polyline = L.polyline(coords, { color: color, weight: 5, opacity: 0.9 }).addTo(map);
+        polyline.bindPopup(`<b><sup>📍</sup> ${name}</b>`);
+      }
+    });
+
+    if (allBounds.length > 0) map.fitBounds(allBounds, { padding: [50, 50] });
+  }
+
+  window.onload = function() {
+    initMap();
+
+    document.getElementById('btnFire').addEventListener('click', toggleFireData);
+    document.getElementById('btnRain').addEventListener('click', toggleRainRadar);
+    document.getElementById('btnGas').addEventListener('click', fetchGasStations);
+
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = e => parseGPXText(e.target.result);
+        reader.readAsText(file);
+      }
+    });
+  };
+</script>
+
+</body>
+</html>
