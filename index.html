@@ -94,6 +94,7 @@
   let layerControl;
   let trackLayersMap = {};
   let currentTrackBounds = null;
+  let trackPointsList = []; // Speichert alle Koordinaten-Punkte des geladenen Tracks
   
   let fireLayer = null;
   let rainLayer = null;
@@ -129,13 +130,11 @@
 
     container.parentNode.insertBefore(actionDiv, container);
 
-    // PERFORMANCE OPTIMIERT: Entfernen ohne Browser-Freeze
     document.getElementById('deselectAllBtn').addEventListener('click', () => {
       const checkboxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
       checkboxes.forEach(cb => {
         if (cb.checked) {
           cb.checked = false;
-          // Event auslösen, damit Leaflet die Schicht sauber entfernt
           cb.dispatchEvent(new Event('click'));
         }
       });
@@ -150,6 +149,27 @@
         }
       });
     });
+  }
+
+  // Abstands-Berechnung in Metern zwischen zwei Koordinaten
+  function getDistanceMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  // Prüft, ob ein Punkt nahe an der Route liegt (Toleranz: ~100 Meter)
+  function isPointNearTrack(lat, lon, maxDistanceMeters = 100) {
+    if (trackPointsList.length === 0) return true; // Falls kein Track geladen, alle anzeigen
+    for (let i = 0; i < trackPointsList.length; i += 3) { // Schrittweite 3 zur Performance-Optimierung
+      const dist = getDistanceMeters(lat, lon, trackPointsList[i][0], trackPointsList[i][1]);
+      if (dist <= maxDistanceMeters) return true;
+    }
+    return false;
   }
 
   // 1. LIVE-BRÄNDE
@@ -219,7 +239,7 @@
     }
   }
 
-  // 3. STRASSENSPERRUNGEN
+  // 3. ECHTE STRASSENSPERRUNGEN AUF DER ROUTE
   async function toggleRouteBlocks() {
     const btn = document.getElementById('btnBlocks');
     if (blocksLayer) {
@@ -231,15 +251,16 @@
     }
 
     const bounds = currentTrackBounds || map.getBounds();
-    btn.innerText = "⏳ Suche Sperrungen...";
+    btn.innerText = "⏳ Prüfe Route...";
     const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
     
+    // Nur echte Straßensperren, Baustellen und Fahrverbote abfragen (keine Kleinst-Schranken mehr)
     const query = `[out:json];
       (
-        node["barrier"](${bbox});
-        node["access"="no"](${bbox});
         way["highway"="construction"](${bbox});
+        way["highway"="closed"](${bbox});
         way["access"="no"](${bbox});
+        way["motor_vehicle"="no"](${bbox});
       );
       out center;`;
     
@@ -256,11 +277,14 @@
         const lat = el.lat || (el.center ? el.center.lat : null);
         const lon = el.lon || (el.center ? el.center.lon : null);
 
-        if (lat && lon) {
-          const type = el.tags.barrier || el.tags.highway || "Sperrung/Einschränkung";
+        // Nur hinzufügen, wenn der Punkt wirklich direkt an der Route liegt (~100m Korridor)
+        if (lat && lon && isPointNearTrack(lat, lon, 100)) {
+          const type = el.tags.highway || el.tags.access || el.tags.motor_vehicle || "Gesperrte Straße / Baustelle";
+          const name = el.tags.name ? `<b>${el.tags.name}</b><br>` : '';
+          
           const marker = L.circleMarker([lat, lon], {
-            radius: 7, fillColor: "#ea580c", color: "#9a3412", weight: 2, fillOpacity: 0.9
-          }).bindPopup(`<b>🚫 Hindernis / Sperrung</b><br>Typ: ${type}<br>Name: ${el.tags.name || 'Keine Angabe'}`);
+            radius: 8, fillColor: "#ea580c", color: "#9a3412", weight: 2, fillOpacity: 0.9
+          }).bindPopup(`<b>🚫 Sperrung / Baustelle</b><br>${name}Typ: ${type}`);
           
           blocksLayer.addLayer(marker);
           count++;
@@ -281,6 +305,7 @@
     if (layerControl) map.removeControl(layerControl);
     Object.values(trackLayersMap).forEach(l => map.removeLayer(l));
     trackLayersMap = {};
+    trackPointsList = [];
 
     const osmTile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
     const baseMaps = { "OpenStreetMap": osmTile };
@@ -308,6 +333,7 @@
         if (!isNaN(lat) && !isNaN(lon)) {
           coords.push([lat, lon]);
           allBounds.push([lat, lon]);
+          trackPointsList.push([lat, lon]); // Für Korridor-Filterung
         }
       });
 
