@@ -129,20 +129,26 @@
 
     container.parentNode.insertBefore(actionDiv, container);
 
+    // PERFORMANCE OPTIMIERT: Entfernen ohne Browser-Freeze
     document.getElementById('deselectAllBtn').addEventListener('click', () => {
-      Object.values(trackLayersMap).forEach(layer => {
-        if (map.hasLayer(layer)) map.removeLayer(layer);
+      const checkboxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
+      checkboxes.forEach(cb => {
+        if (cb.checked) {
+          cb.checked = false;
+          // Event auslösen, damit Leaflet die Schicht sauber entfernt
+          cb.dispatchEvent(new Event('click'));
+        }
       });
-      const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-      checkboxes.forEach(cb => cb.checked = false);
     });
 
     document.getElementById('selectAllBtn').addEventListener('click', () => {
-      Object.values(trackLayersMap).forEach(layer => {
-        if (!map.hasLayer(layer)) map.addLayer(layer);
+      const checkboxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
+      checkboxes.forEach(cb => {
+        if (!cb.checked) {
+          cb.checked = true;
+          cb.dispatchEvent(new Event('click'));
+        }
       });
-      const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-      checkboxes.forEach(cb => cb.checked = true);
     });
   }
 
