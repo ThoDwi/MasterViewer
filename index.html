@@ -124,7 +124,7 @@
   function initMap() {
     map = L.map('map', {
       center: [48.8, 8.2],
-      zoom: 6
+      zoom: 7
     });
 
     const osmTile = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -192,21 +192,29 @@
     });
   }
 
-  async function fetchOverpassData(query) {
+  // Multi-Server-Abfrage mit automatischem Fallback
+  async function fetchOverpassData(query, statusCallback) {
     const servers = [
       'https://overpass-api.de/api/interpreter',
-      'https://overpass.kumi.systems/api/interpreter'
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://overpass.private.coffee/api/interpreter',
+      'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
     ];
-    for (const serverUrl of servers) {
+
+    for (let i = 0; i < servers.length; i++) {
+      if (statusCallback) statusCallback(`⏳ Server ${i + 1}/${servers.length}...`);
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 Sek Timeout pro Server
         
-        const res = await fetch(`${serverUrl}?data=${encodeURIComponent(query)}`, { signal: controller.signal });
+        const res = await fetch(`${servers[i]}?data=${encodeURIComponent(query)}`, { signal: controller.signal });
         clearTimeout(timeoutId);
-        if (res.ok) return await res.json();
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.elements) return data;
+        }
       } catch (err) {
-        console.log("Wechsle Overpass Server...");
+        console.warn(`Server ${servers[i]} antwortet nicht. Versuche nächsten...`);
       }
     }
     return null;
@@ -238,7 +246,7 @@
       fireLayer.addTo(map);
       btn.classList.add('active'); btn.innerText = `🔥 Live-Brände (${count})`;
     } catch (e) {
-      alert("Fehler beim Abrufen."); btn.innerText = "🔥 Live-Brände";
+      btn.innerText = "🔥 Live-Brände";
     }
   }
 
@@ -257,11 +265,11 @@
       rainLayer = L.tileLayer(`https://tilecache.rainviewer.com${latestPath}/256/{z}/{x}/{y}/2/1_1.png`, { opacity: 0.6, zIndex: 500 }).addTo(map);
       btn.classList.add('active'); btn.innerText = "🌧️ Regen-Radar (Aktiv)";
     } catch (e) {
-      alert("Fehler beim Abrufen."); btn.innerText = "🌧️ Regen-Radar";
+      btn.innerText = "🌧️ Regen-Radar";
     }
   }
 
-  // SPERRUNGEN (Auf aktuellen Sichtbereich bezogen)
+  // SPERRUNGEN (auf aktuellen Kartenausschnitt)
   async function toggleRouteBlocks() {
     const btn = document.getElementById('btnBlocks');
     if (blocksLayer) {
@@ -270,11 +278,10 @@
     }
 
     if (map.getZoom() < 10) {
-      alert("Bitte zoome näher an den gewünschten Streckenabschnitt heran, um Sperrungen abzufragen.");
+      alert("Bitte zoome etwas näher an die Strecke heran (z. B. auf eine Region/Bezirk), um Sperrungen abzufragen.");
       return;
     }
 
-    btn.innerText = "⏳ Prüfe Ausschnitt...";
     const bounds = map.getBounds();
     const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
     
@@ -286,8 +293,13 @@
       );
       out center;`;
 
-    const data = await fetchOverpassData(query);
-    if (!data) { alert("Abfrage fehlgeschlagen."); btn.innerText = "🚫 Sperrungen"; return; }
+    const data = await fetchOverpassData(query, txt => btn.innerText = txt);
+
+    if (!data) {
+      btn.innerText = "🚫 Sperrungen";
+      alert("Die Server sind gerade ausgelastet. Bitte versuche es in ein paar Sekunden erneut oder zoome noch etwas näher heran.");
+      return;
+    }
 
     blocksLayer = L.layerGroup();
     let count = 0;
@@ -296,10 +308,10 @@
       const lat = el.lat || (el.center ? el.center.lat : null);
       const lon = el.lon || (el.center ? el.center.lon : null);
       if (lat && lon) {
-        const type = el.tags.highway || el.tags.access || "Sperrung";
-        const name = el.tags.name ? `<b>${el.tags.name}</b><br>` : '';
+        const type = el.tags ? (el.tags.highway || el.tags.access || "Sperrung") : "Sperrung";
+        const name = (el.tags && el.tags.name) ? `<b>${el.tags.name}</b><br>` : '';
         const marker = L.circleMarker([lat, lon], { radius: 8, fillColor: "#ea580c", color: "#9a3412", weight: 2, fillOpacity: 0.95 })
-          .bindPopup(`<b>🚫 Sperrung</b><br>${name}Typ: ${type}`);
+          .bindPopup(`<b>🚫 Sperrung / Baustelle</b><br>${name}Typ: ${type}`);
         blocksLayer.addLayer(marker); count++;
       }
     });
@@ -309,7 +321,7 @@
     btn.innerText = `🚫 Sperrungen (${count})`;
   }
 
-  // OFFROAD-SUCHE (Prüft den aktuellen Sichtbereich auf der Karte)
+  // OFFROAD-SUCHE
   async function toggleOffroadSections() {
     const btn = document.getElementById('btnOffroad');
     if (offroadLayer) {
@@ -317,30 +329,26 @@
       btn.classList.remove('offroad-active'); btn.innerText = "🏕️ Offroad-Passagen"; return;
     }
 
-    // Schutz vor zu großen Abfragen:
     if (map.getZoom() < 11) {
-      alert("Der Bereich ist zu groß! Zoome bitte näher an deine Tagesetappe heran (z.B. auf eine Stadt/Region), um die Offroad-Suche zu starten.");
+      alert("Zoome bitte noch ein Stück näher an deine Tagesetappe heran (z.B. auf ein Tal oder eine Stadt), damit die Abfrage schnell geladen werden kann.");
       return;
     }
-
-    btn.innerText = "⏳ Analysiere Ausschnitt...";
 
     const bounds = map.getBounds();
     const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
 
-    const query = `[out:json][timeout:15];
+    const query = `[out:json][timeout:10];
       (
         way["highway"="track"](${bbox});
-        way["surface"~"unpaved|dirt|gravel|ground|grass|earth|compacted"](${bbox});
-        way["tracktype"](${bbox});
+        way["surface"~"unpaved|dirt|gravel|ground|grass|earth"](${bbox});
       );
       out geometry;`;
 
-    const data = await fetchOverpassData(query);
+    const data = await fetchOverpassData(query, txt => btn.innerText = txt);
 
-    if (!data || !data.elements) {
-      alert("Server-Timeout. Bitte zoome noch ein Stück näher an die Strecke heran.");
+    if (!data) {
       btn.innerText = "🏕️ Offroad-Passagen";
+      alert("Server derzeit überlastet. Bitte noch etwas näher heranzoomen und erneut klicken.");
       return;
     }
 
@@ -350,13 +358,13 @@
     data.elements.forEach(el => {
       if (el.type === "way" && el.geometry) {
         const coords = el.geometry.map(pt => [pt.lat, pt.lon]);
-        const surface = el.tags.surface || el.tags.tracktype || el.tags.highway || "Offroad / Schotter";
+        const surface = el.tags ? (el.tags.surface || el.tags.tracktype || "Schotter / Offroad") : "Offroad";
         
         const polyline = L.polyline(coords, {
-          color: '#facc15', // Neon Gelb
+          color: '#facc15', // Neongelb
           weight: 6,
-          opacity: 0.9
-        }).bindPopup(`<b>🏕️ Offroad / Schotter</b><br>Belag: ${surface}`);
+          opacity: 0.95
+        }).bindPopup(`<b>🏕️ Offroad-Passage</b><br>Belag: ${surface}`);
 
         offroadLayer.addLayer(polyline);
         count++;
@@ -366,10 +374,6 @@
     offroadLayer.addTo(map);
     btn.classList.add('offroad-active');
     btn.innerText = `🏕️ Offroad (${count})`;
-
-    if (count === 0) {
-      alert("Keine Schotter- oder Offroad-Pisten im aktuellen Kartenausschnitt gefunden.");
-    }
   }
 
   // GPX PARSER
