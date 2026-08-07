@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Live & GPX Master Viewer</title>
+  <title>Live & GPX Viewer</title>
   
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
@@ -53,7 +53,7 @@
       z-index: 1;
     }
 
-    /* Positionierung und Styling des Ebenen-Menüs */
+    /* Positionierung des Ebenen-Menüs unter dem Header */
     .leaflet-top.leaflet-right {
       top: 10px !important;
       right: 10px !important;
@@ -116,7 +116,7 @@
 <script>
   let map;
   let layerControl;
-  let trackLayersMap = {};
+  let loadedGpxLayers = []; // Speichert alle aktiv geladenen GPX-Ebenen
   
   let fireLayer = null;
   let rainLayer = null;
@@ -147,15 +147,16 @@
       "🛰️ Satellit (Esri)": satTile
     };
 
+    // Erstelle layerControl NUR EINMALIG
     layerControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
     
-    // Buttons direkt nach Map-Initialisierung aufrufen
+    // Füge die Steuerungsbuttons dauerhaft in das Menü ein
     addControlButtons();
 
     setTimeout(() => { map.invalidateSize(); }, 300);
   }
 
-  // EINFÜGEN DER BEDIENBUTTONS (ALLE WÄHLEN / ABWÄHLEN / EINKLAPPEN)
+  // FÜGT DIE STEUERUNGSBUTTONS FEST EIN
   function addControlButtons() {
     const container = document.querySelector('.leaflet-control-layers');
     if (!container || document.getElementById('bulk-select-actions')) return;
@@ -186,16 +187,16 @@
     });
 
     document.getElementById('deselectAllBtn').addEventListener('click', () => {
-      const checkboxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
+      const checkboxes = container.querySelectorAll('.leaflet-control-layers-overlays input[type="checkbox"]');
       checkboxes.forEach(cb => {
-        if (cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('click')); }
+        if (cb.checked) cb.click();
       });
     });
 
     document.getElementById('selectAllBtn').addEventListener('click', () => {
-      const checkboxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
+      const checkboxes = container.querySelectorAll('.leaflet-control-layers-overlays input[type="checkbox"]');
       checkboxes.forEach(cb => {
-        if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('click')); }
+        if (!cb.checked) cb.click();
       });
     });
   }
@@ -218,7 +219,7 @@
           if (geo.type === "Point") {
             const marker = L.circleMarker([geo.coordinates[1], geo.coordinates[0]], {
               radius: 8, fillColor: "#dc2626", color: "#7f1d1d", weight: 2, fillOpacity: 0.85
-            }).bindPopup(`<b>🔥 ${event.title}</b><br>Datum: ${new Date(geo.date).toLocaleDateString()}`);
+            }).bindPopup(`<b>🔥 ${event.title}</b><br>Datum:${new Date(geo.date).toLocaleDateString()}`);
             fireLayer.addLayer(marker); count++;
           }
         });
@@ -242,7 +243,14 @@
       const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
       const data = await res.json();
       const latestPath = data.radar.past[data.radar.past.length - 1].path;
-      rainLayer = L.tileLayer(`https://tilecache.rainviewer.com${latestPath}/256/{z}/{x}/{y}/2/1_1.png`, { opacity: 0.6, zIndex: 500 }).addTo(map);
+      
+      rainLayer = L.tileLayer(`https://tilecache.rainviewer.com${latestPath}/256/{z}/{x}/{y}/2/1_1.png`, { 
+        opacity: 0.6, 
+        zIndex: 500,
+        maxNativeZoom: 12,
+        maxZoom: 19
+      }).addTo(map);
+
       btn.classList.add('active'); btn.innerText = "🌧️ Regen-Radar (Aktiv)";
     } catch (e) {
       btn.innerText = "🌧️ Regen-Radar";
@@ -251,26 +259,18 @@
 
   // GPX PARSER
   function parseGPXText(xmlString) {
-    if (layerControl) map.removeControl(layerControl);
-    Object.values(trackLayersMap).forEach(l => map.removeLayer(l));
-    trackLayersMap = {}; 
+    // Alte Ebenen von Karte und Menü entfernen
+    loadedGpxLayers.forEach(layer => {
+      map.removeLayer(layer);
+      layerControl.removeLayer(layer);
+    });
+    loadedGpxLayers = [];
 
-    const osmTile = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
-    const topoTile = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17 });
-    const satTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18 });
-
-    const baseMaps = {
-      "🗺️ Standard (OSM)": osmTile,
-      "🏔️ Topografisch (OpenTopo)": topoTile,
-      "🛰️ Satellit (Esri)": satTile
-    };
-
-    const overlayMaps = {}; 
     const allBounds = [];
-
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlString, "text/xml");
 
+    // Tracks verarbeiten
     let tracks = Array.from(xmlDoc.getElementsByTagName("trk"));
     if (tracks.length === 0) tracks = Array.from(xmlDoc.getElementsByTagNameNS("*", "trk"));
 
@@ -296,10 +296,28 @@
         const polyline = L.polyline(coords, { color: color, weight: 5, opacity: 0.9 }).addTo(map);
         polyline.bindPopup(`<b>📍 ${name}</b>`);
         const label = `<span style="color:${color}; font-weight:bold;">■</span> ${name}`;
-        overlayMaps[label] = polyline;
-        trackLayersMap['trk_' + i] = polyline;
+        
+        // Füge zur Karte & zum Steuerelement hinzu
+        layerControl.addOverlay(polyline, label);
+        loadedGpxLayers.push(polyline);
       }
     });
 
+    // Wegpunkte verarbeiten
     let waypoints = Array.from(xmlDoc.getElementsByTagName("wpt"));
     if (waypoints.length === 0) waypoints = Array.from(xmlDoc.getElementsByTagNameNS("*", "wpt"));
+
+    waypoints.forEach((wpt, i) => {
+      const lat = parseFloat(wpt.getAttribute("lat"));
+      const lon = parseFloat(wpt.getAttribute("lon"));
+      let nameEl = wpt.getElementsByTagName("name")[0] || wpt.getElementsByTagNameNS("*", "name")[0];
+      let descEl = wpt.getElementsByTagName("desc")[0] || wpt.getElementsByTagNameNS("*", "desc")[0];
+      
+      const name = nameEl ? nameEl.textContent : `Wegpunkt ${i + 1}`;
+      const desc = descEl ? descEl.textContent : '';
+
+      if (!isNaN(lat) && !isNaN(lon)) {
+        allBounds.push([lat, lon]);
+        const circleMarker = L.circleMarker([lat, lon], {
+          radius: 8, fillColor: "#dc2626", color: "#7f1d1d", weight: 2, fillOpacity: 0.9
+        }).bindPopup(`<b>${name}</b><br
