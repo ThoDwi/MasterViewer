@@ -116,7 +116,7 @@
   let map;
   let layerControl;
   let loadedGpxLayers = [];
-
+  
   let fireLayer = null;
   let rainLayer = null;
 
@@ -222,7 +222,7 @@
     }
   }
 
-  // REGEN-RADAR (Begrenzt auf maxZoom 12, um das "Not Supported"-Schild abzufangen)
+  // REGEN-RADAR
   async function toggleRainRadar() {
     const btn = document.getElementById('btnRain');
     if (rainLayer) {
@@ -238,7 +238,8 @@
       rainLayer = L.tileLayer(`https://tilecache.rainviewer.com${latestPath}/256/{z}/{x}/{y}/2/1_1.png`, { 
         opacity: 0.6, 
         zIndex: 500,
-        maxZoom: 12
+        maxNativeZoom: 12,
+        maxZoom: 19
       }).addTo(map);
 
       btn.classList.add('active'); btn.innerText = "🌧️ Regen-Radar (Aktiv)";
