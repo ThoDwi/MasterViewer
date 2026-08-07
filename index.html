@@ -76,7 +76,7 @@
   <div class="btn-group">
     <button class="live-btn" id="btnFire">🔥 Live-Brände</button>
     <button class="live-btn" id="btnRain">🌧️ Regen-Radar</button>
-    <button class="live-btn" id="btnBlocks">🚫 Sperrungen auf Route</button>
+    <button class="live-btn" id="btnBlocks">🚫 Sperrungen im Bild</button>
   </div>
 
   <label class="file-btn">
@@ -93,8 +93,7 @@
   let map;
   let layerControl;
   let trackLayersMap = {};
-  let currentTrackBounds = null;
-  let trackPointsList = []; // Speichert alle Koordinaten-Punkte des geladenen Tracks
+  let trackPointsList = []; 
   
   let fireLayer = null;
   let rainLayer = null;
@@ -151,7 +150,6 @@
     });
   }
 
-  // Abstands-Berechnung in Metern zwischen zwei Koordinaten
   function getDistanceMeters(lat1, lon1, lat2, lon2) {
     const R = 6371000;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -162,10 +160,9 @@
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   }
 
-  // Prüft, ob ein Punkt nahe an der Route liegt (Toleranz: ~100 Meter)
-  function isPointNearTrack(lat, lon, maxDistanceMeters = 100) {
-    if (trackPointsList.length === 0) return true; // Falls kein Track geladen, alle anzeigen
-    for (let i = 0; i < trackPointsList.length; i += 3) { // Schrittweite 3 zur Performance-Optimierung
+  function isPointNearTrack(lat, lon, maxDistanceMeters = 150) {
+    if (trackPointsList.length === 0) return true;
+    for (let i = 0; i < trackPointsList.length; i += 4) {
       const dist = getDistanceMeters(lat, lon, trackPointsList[i][0], trackPointsList[i][1]);
       if (dist <= maxDistanceMeters) return true;
     }
@@ -239,28 +236,27 @@
     }
   }
 
-  // 3. ECHTE STRASSENSPERRUNGEN AUF DER ROUTE
+  // 3. SPERRUNGEN (STABIL: PRÜFT AKTUELLEN KARTENAUSSCHNITT)
   async function toggleRouteBlocks() {
     const btn = document.getElementById('btnBlocks');
     if (blocksLayer) {
       map.removeLayer(blocksLayer);
       blocksLayer = null;
       btn.classList.remove('active');
-      btn.innerText = "🚫 Sperrungen auf Route";
+      btn.innerText = "🚫 Sperrungen im Bild";
       return;
     }
 
-    const bounds = currentTrackBounds || map.getBounds();
-    btn.innerText = "⏳ Prüfe Route...";
+    const bounds = map.getBounds();
+    btn.innerText = "⏳ Suche im Ausschnitt...";
     const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
     
-    // Nur echte Straßensperren, Baustellen und Fahrverbote abfragen (keine Kleinst-Schranken mehr)
-    const query = `[out:json];
+    // Timeout erhöht auf 60s, Abfrage optimiert
+    const query = `[out:json][timeout:60];
       (
         way["highway"="construction"](${bbox});
         way["highway"="closed"](${bbox});
         way["access"="no"](${bbox});
-        way["motor_vehicle"="no"](${bbox});
       );
       out center;`;
     
@@ -268,6 +264,7 @@
 
     try {
       const res = await fetch(url);
+      if (!res.ok) throw new Error("Server Auslastung");
       const data = await res.json();
 
       blocksLayer = L.layerGroup();
@@ -277,9 +274,8 @@
         const lat = el.lat || (el.center ? el.center.lat : null);
         const lon = el.lon || (el.center ? el.center.lon : null);
 
-        // Nur hinzufügen, wenn der Punkt wirklich direkt an der Route liegt (~100m Korridor)
-        if (lat && lon && isPointNearTrack(lat, lon, 100)) {
-          const type = el.tags.highway || el.tags.access || el.tags.motor_vehicle || "Gesperrte Straße / Baustelle";
+        if (lat && lon && isPointNearTrack(lat, lon, 150)) {
+          const type = el.tags.highway || el.tags.access || "Gesperrte Straße / Baustelle";
           const name = el.tags.name ? `<b>${el.tags.name}</b><br>` : '';
           
           const marker = L.circleMarker([lat, lon], {
@@ -295,8 +291,8 @@
       btn.classList.add('active');
       btn.innerText = `🚫 Sperrungen (${count})`;
     } catch (e) {
-      alert("Fehler beim Abrufen der Sperrungen.");
-      btn.innerText = "🚫 Sperrungen auf Route";
+      alert("Tipp: Zoome etwas näher an deinen aktuellen Fahrtag heran und versuche es erneut!");
+      btn.innerText = "🚫 Sperrungen im Bild";
     }
   }
 
@@ -333,7 +329,7 @@
         if (!isNaN(lat) && !isNaN(lon)) {
           coords.push([lat, lon]);
           allBounds.push([lat, lon]);
-          trackPointsList.push([lat, lon]); // Für Korridor-Filterung
+          trackPointsList.push([lat, lon]);
         }
       });
 
@@ -375,8 +371,7 @@
     addBulkSelectButtons();
 
     if (allBounds.length > 0) {
-      currentTrackBounds = L.latLngBounds(allBounds);
-      map.fitBounds(currentTrackBounds, { padding: [50, 50] });
+      map.fitBounds(L.latLngBounds(allBounds), { padding: [50, 50] });
     }
   }
 
