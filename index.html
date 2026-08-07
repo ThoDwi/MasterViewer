@@ -116,8 +116,8 @@
 <script>
   let map;
   let layerControl;
-  let loadedGpxLayers = []; // Speichert alle aktiv geladenen GPX-Ebenen
-  
+  let loadedGpxLayers = [];
+
   let fireLayer = null;
   let rainLayer = null;
 
@@ -147,16 +147,16 @@
       "🛰️ Satellit (Esri)": satTile
     };
 
-    // Erstelle layerControl NUR EINMALIG
+    // Control nur einmalig initialisieren
     layerControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
     
-    // Füge die Steuerungsbuttons dauerhaft in das Menü ein
+    // Steuerungs-Buttons fest einfügen
     addControlButtons();
 
     setTimeout(() => { map.invalidateSize(); }, 300);
   }
 
-  // FÜGT DIE STEUERUNGSBUTTONS FEST EIN
+  // FÜGT DIE ABLAUF-BUTTONS UNVERÄNDERLICH EIN
   function addControlButtons() {
     const container = document.querySelector('.leaflet-control-layers');
     if (!container || document.getElementById('bulk-select-actions')) return;
@@ -188,16 +188,12 @@
 
     document.getElementById('deselectAllBtn').addEventListener('click', () => {
       const checkboxes = container.querySelectorAll('.leaflet-control-layers-overlays input[type="checkbox"]');
-      checkboxes.forEach(cb => {
-        if (cb.checked) cb.click();
-      });
+      checkboxes.forEach(cb => { if (cb.checked) cb.click(); });
     });
 
     document.getElementById('selectAllBtn').addEventListener('click', () => {
       const checkboxes = container.querySelectorAll('.leaflet-control-layers-overlays input[type="checkbox"]');
-      checkboxes.forEach(cb => {
-        if (!cb.checked) cb.click();
-      });
+      checkboxes.forEach(cb => { if (!cb.checked) cb.click(); });
     });
   }
 
@@ -219,7 +215,7 @@
           if (geo.type === "Point") {
             const marker = L.circleMarker([geo.coordinates[1], geo.coordinates[0]], {
               radius: 8, fillColor: "#dc2626", color: "#7f1d1d", weight: 2, fillOpacity: 0.85
-            }).bindPopup(`<b>🔥 ${event.title}</b><br>Datum:${new Date(geo.date).toLocaleDateString()}`);
+            }).bindPopup(`<b>🔥 ${event.title}</b><br>Datum: ${new Date(geo.date).toLocaleDateString()}`);
             fireLayer.addLayer(marker); count++;
           }
         });
@@ -259,7 +255,7 @@
 
   // GPX PARSER
   function parseGPXText(xmlString) {
-    // Alte Ebenen von Karte und Menü entfernen
+    // Nur alte Ebenen vom Karten-Objekt & Control entfernen
     loadedGpxLayers.forEach(layer => {
       map.removeLayer(layer);
       layerControl.removeLayer(layer);
@@ -270,7 +266,6 @@
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlString, "text/xml");
 
-    // Tracks verarbeiten
     let tracks = Array.from(xmlDoc.getElementsByTagName("trk"));
     if (tracks.length === 0) tracks = Array.from(xmlDoc.getElementsByTagNameNS("*", "trk"));
 
@@ -297,13 +292,11 @@
         polyline.bindPopup(`<b>📍 ${name}</b>`);
         const label = `<span style="color:${color}; font-weight:bold;">■</span> ${name}`;
         
-        // Füge zur Karte & zum Steuerelement hinzu
         layerControl.addOverlay(polyline, label);
         loadedGpxLayers.push(polyline);
       }
     });
 
-    // Wegpunkte verarbeiten
     let waypoints = Array.from(xmlDoc.getElementsByTagName("wpt"));
     if (waypoints.length === 0) waypoints = Array.from(xmlDoc.getElementsByTagNameNS("*", "wpt"));
 
@@ -320,4 +313,40 @@
         allBounds.push([lat, lon]);
         const circleMarker = L.circleMarker([lat, lon], {
           radius: 8, fillColor: "#dc2626", color: "#7f1d1d", weight: 2, fillOpacity: 0.9
-        }).bindPopup(`<b>${name}</b><br
+        }).bindPopup(`<b>${name}</b><br>${desc}`).addTo(map);
+
+        const label = `<span style="color:#dc2626; font-weight:bold;">🔴</span> ${name}`;
+        
+        layerControl.addOverlay(circleMarker, label);
+        loadedGpxLayers.push(circleMarker);
+      }
+    });
+
+    if (allBounds.length > 0) { 
+      map.fitBounds(L.latLngBounds(allBounds), { padding: [50, 50] }); 
+    }
+  }
+
+  window.onload = function() {
+    initMap();
+
+    window.addEventListener('resize', () => {
+      if (map) map.invalidateSize();
+    });
+
+    document.getElementById('btnFire').addEventListener('click', toggleFireData);
+    document.getElementById('btnRain').addEventListener('click', toggleRainRadar);
+
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = e => parseGPXText(e.target.result);
+        reader.readAsText(file);
+      }
+    });
+  };
+</script>
+
+</body>
+</html>
