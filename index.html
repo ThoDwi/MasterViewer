@@ -22,12 +22,19 @@
       background: #0f172a; color: white; padding: 0 16px;
       display: flex; justify-content: space-between; align-items: center;
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      z-index: 1000; position: relative;
+      z-index: 2000; position: relative;
     }
-    header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+    header h1 { margin: 0; font-size: 15px; font-weight: 600; }
 
-    .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn-group { display: flex; gap: 8px; align-items: center; }
     
+    .map-select {
+      background: #1e293b; color: #f8fafc; border: 1px solid #38bdf8;
+      padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;
+      cursor: pointer; outline: none;
+    }
+    .map-select:hover { background: #334155; }
+
     .live-btn {
       background: #334155; color: white; border: 1px solid #475569;
       padding: 6px 12px; border-radius: 6px; cursor: pointer;
@@ -53,36 +60,18 @@
       z-index: 1;
     }
 
+    /* Verschiebe das Layer-Icon unter den Header, falls genutzt */
+    .leaflet-top.leaflet-right {
+      top: 10px !important;
+      right: 10px !important;
+    }
+
     .leaflet-control-layers {
       border-radius: 8px !important;
       box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
       padding: 10px 12px !important;
       font-size: 13px !important;
-      max-height: 75vh; overflow-y: auto;
-    }
-    .layer-action-btns {
-      display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; padding-bottom: 8px;
-      border-bottom: 1px solid #cbd5e1;
-    }
-    .layer-action-row { display: flex; gap: 6px; }
-    .layer-action-btn {
-      background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155;
-      padding: 5px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
-      cursor: pointer; flex: 1; text-align: center;
-    }
-    .layer-action-btn:hover { background: #0284c7; color: white; border-color: #0284c7; }
-
-    .toggle-list-btn {
-      background: #e2e8f0; color: #0f172a; font-weight: bold; border: 1px solid #94a3b8;
-      padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; text-align: center;
-      margin-bottom: 6px; display: block; width: 100%;
-    }
-
-    .layers-collapsed .leaflet-control-layers-overlays,
-    .layers-collapsed .leaflet-control-layers-base,
-    .layers-collapsed .leaflet-control-layers-separator,
-    .layers-collapsed .layer-action-row {
-      display: none !important;
+      max-height: 70vh; overflow-y: auto;
     }
   </style>
 </head>
@@ -92,14 +81,21 @@
   <h1>🗺️ Live & GPX Viewer</h1>
   
   <div class="btn-group">
+    <select id="mapStyleSelect" class="map-select">
+      <option value="osm">🗺️ Standard (OSM)</option>
+      <option value="cyclosm" selected>🚵 Offroad & Gravel (CyclOSM)</option>
+      <option value="opentopo">🏔️ Topografisch (OpenTopo)</option>
+      <option value="sat">🛰️ Satellit (Esri)</option>
+    </select>
+
     <button class="live-btn" id="btnFire">🔥 Live-Brände</button>
     <button class="live-btn" id="btnRain">🌧️ Regen-Radar</button>
-  </div>
 
-  <label class="file-btn">
-    📂 GPX laden
-    <input type="file" id="fileInput" accept=".gpx">
-  </label>
+    <label class="file-btn">
+      📂 GPX laden
+      <input type="file" id="fileInput" accept=".gpx">
+    </label>
+  </div>
 </header>
 
 <div id="map"></div>
@@ -108,6 +104,7 @@
 
 <script>
   let map;
+  let currentBaseTile;
   let layerControl;
   let trackLayersMap = {};
   
@@ -116,86 +113,35 @@
 
   const colors = ['#2563eb', '#e11d48', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#f59e0b', '#06b6d4'];
 
+  // Kacheln definieren
+  const baseTiles = {
+    osm: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }),
+    cyclosm: L.tileLayer('https://{s}.tile-cyclosm.openstreetmap-fr.org/cyclosm/{z}/{x}/{y}.png', { maxZoom: 18, attribution: 'CyclOSM' }),
+    opentopo: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17, attribution: 'OpenTopoMap' }),
+    sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18, attribution: 'Esri' })
+  };
+
   function initMap() {
     map = L.map('map', {
       center: [48.8, 8.2],
       zoom: 7
     });
 
-    // Basiskarten
-    const osmTile = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19, attribution: '&copy; OpenStreetMap'
-    }).addTo(map);
-
-    const cyclOsmTile = L.tileLayer('https://{s}.tile-cyclosm.openstreetmap-fr.org/cyclosm/{z}/{x}/{y}.png', {
-      maxZoom: 18, attribution: 'CyclOSM (Ideal für Offroad/Gravel)'
-    });
-
-    const satTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 18, attribution: 'Tiles &copy; Esri'
-    });
-
-    const topoTile = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-      maxZoom: 17, attribution: 'OpenTopoMap'
-    });
-
-    const baseMaps = {
-      "🗺️ Standard (OSM)": osmTile,
-      "🚵 Offroad & Gravel (CyclOSM)": cyclOsmTile,
-      "🏔️ Topografisch (OpenTopo)": topoTile,
-      "🛰️ Satellit (Esri)": satTile
-    };
-
-    layerControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
+    // Standardmäßig CyclOSM setzen
+    currentBaseTile = baseTiles.cyclosm;
+    currentBaseTile.addTo(map);
 
     setTimeout(() => { map.invalidateSize(); }, 300);
   }
 
-  function addControlButtons() {
-    const container = document.querySelector('.leaflet-control-layers');
-    if (!container || document.getElementById('bulk-select-actions')) return;
-
-    const actionDiv = document.createElement('div');
-    actionDiv.id = 'bulk-select-actions';
-    actionDiv.className = 'layer-action-btns';
-    actionDiv.innerHTML = `
-      <button class="toggle-list-btn" id="toggleListBtn">👁️ Liste einklappen (Hide)</button>
-      <div class="layer-action-row">
-        <button class="layer-action-btn" id="deselectAllBtn">Alle abwählen</button>
-        <button class="layer-action-btn" id="selectAllBtn">Alle wählen</button>
-      </div>
-    `;
-
-    const overlayContainer = container.querySelector('.leaflet-control-layers-overlays');
-    if (overlayContainer) {
-      container.insertBefore(actionDiv, container.firstChild);
+  function changeBaseMap(key) {
+    if (currentBaseTile) {
+      map.removeLayer(currentBaseTile);
     }
-
-    let isCollapsed = false;
-    document.getElementById('toggleListBtn').addEventListener('click', () => {
-      isCollapsed = !isCollapsed;
-      if (isCollapsed) {
-        container.classList.add('layers-collapsed');
-        document.getElementById('toggleListBtn').innerText = "👁️ Liste ausklappen (Show)";
-      } else {
-        container.classList.remove('layers-collapsed');
-        document.getElementById('toggleListBtn').innerText = "👁️ Liste einklappen (Hide)";
-      }
-    });
-
-    document.getElementById('deselectAllBtn').addEventListener('click', () => {
-      const checkboxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
-      checkboxes.forEach(cb => {
-        if (cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('click')); }
-      });
-    });
-
-    document.getElementById('selectAllBtn').addEventListener('click', () => {
-      const checkboxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
-      checkboxes.forEach(cb => {
-        if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('click')); }
-      });
-    });
+    if (baseTiles[key]) {
+      currentBaseTile = baseTiles[key];
+      currentBaseTile.addTo(map);
+    }
   }
 
   // LIVE-BRÄNDE
@@ -252,18 +198,6 @@
     if (layerControl) map.removeControl(layerControl);
     Object.values(trackLayersMap).forEach(l => map.removeLayer(l));
     trackLayersMap = {}; 
-
-    const osmTile = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
-    const cyclOsmTile = L.tileLayer('https://{s}.tile-cyclosm.openstreetmap-fr.org/cyclosm/{z}/{x}/{y}.png', { maxZoom: 18 });
-    const topoTile = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17 });
-    const satTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18 });
-
-    const baseMaps = {
-      "🗺️ Standard (OSM)": osmTile,
-      "🚵 Offroad & Gravel (CyclOSM)": cyclOsmTile,
-      "🏔️ Topografisch (OpenTopo)": topoTile,
-      "🛰️ Satellit (Esri)": satTile
-    };
 
     const overlayMaps = {}; 
     const allBounds = [];
@@ -326,8 +260,8 @@
       }
     });
 
-    layerControl = L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
-    addControlButtons();
+    // Erstelle ein reines Overlay-Menü oben rechts für die GPX-Etappen
+    layerControl = L.control.layers(null, overlayMaps, { collapsed: false }).addTo(map);
 
     if (allBounds.length > 0) { 
       map.fitBounds(L.latLngBounds(allBounds), { padding: [50, 50] }); 
@@ -339,6 +273,10 @@
 
     window.addEventListener('resize', () => {
       if (map) map.invalidateSize();
+    });
+
+    document.getElementById('mapStyleSelect').addEventListener('change', function(e) {
+      changeBaseMap(e.target.value);
     });
 
     document.getElementById('btnFire').addEventListener('click', toggleFireData);
