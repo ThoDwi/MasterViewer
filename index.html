@@ -35,7 +35,6 @@
     }
     .live-btn:hover { background: #475569; }
     .live-btn.active { background: #2563eb; border-color: #3b82f6; }
-    .live-btn.offroad-active { background: #d97706; border-color: #f59e0b; color: #fff; }
     
     .file-btn {
       background: #0284c7; color: white; padding: 6px 12px;
@@ -95,8 +94,6 @@
   <div class="btn-group">
     <button class="live-btn" id="btnFire">🔥 Live-Brände</button>
     <button class="live-btn" id="btnRain">🌧️ Regen-Radar</button>
-    <button class="live-btn" id="btnBlocks">🚫 Sperrungen</button>
-    <button class="live-btn" id="btnOffroad">🏕️ Offroad-Passagen</button>
   </div>
 
   <label class="file-btn">
@@ -116,8 +113,6 @@
   
   let fireLayer = null;
   let rainLayer = null;
-  let blocksLayer = null;
-  let offroadLayer = null;
 
   const colors = ['#2563eb', '#e11d48', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#f59e0b', '#06b6d4'];
 
@@ -127,16 +122,27 @@
       zoom: 7
     });
 
+    // Basiskarten
     const osmTile = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; OpenStreetMap'
     }).addTo(map);
+
+    const cyclOsmTile = L.tileLayer('https://{s}.tile-cyclosm.openstreetmap-fr.org/cyclosm/{z}/{x}/{y}.png', {
+      maxZoom: 18, attribution: 'CyclOSM (Ideal für Offroad/Gravel)'
+    });
 
     const satTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 18, attribution: 'Tiles &copy; Esri'
     });
 
+    const topoTile = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+      maxZoom: 17, attribution: 'OpenTopoMap'
+    });
+
     const baseMaps = {
-      "🗺️ Straßenkarte (OSM)": osmTile,
+      "🗺️ Standard (OSM)": osmTile,
+      "🚵 Offroad & Gravel (CyclOSM)": cyclOsmTile,
+      "🏔️ Topografisch (OpenTopo)": topoTile,
       "🛰️ Satellit (Esri)": satTile
     };
 
@@ -192,34 +198,6 @@
     });
   }
 
-  // Multi-Server-Abfrage mit automatischem Fallback
-  async function fetchOverpassData(query, statusCallback) {
-    const servers = [
-      'https://overpass-api.de/api/interpreter',
-      'https://overpass.kumi.systems/api/interpreter',
-      'https://overpass.private.coffee/api/interpreter',
-      'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
-    ];
-
-    for (let i = 0; i < servers.length; i++) {
-      if (statusCallback) statusCallback(`⏳ Server ${i + 1}/${servers.length}...`);
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 Sek Timeout pro Server
-        
-        const res = await fetch(`${servers[i]}?data=${encodeURIComponent(query)}`, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.elements) return data;
-        }
-      } catch (err) {
-        console.warn(`Server ${servers[i]} antwortet nicht. Versuche nächsten...`);
-      }
-    }
-    return null;
-  }
-
   // LIVE-BRÄNDE
   async function toggleFireData() {
     const btn = document.getElementById('btnFire');
@@ -269,113 +247,6 @@
     }
   }
 
-  // SPERRUNGEN (auf aktuellen Kartenausschnitt)
-  async function toggleRouteBlocks() {
-    const btn = document.getElementById('btnBlocks');
-    if (blocksLayer) {
-      map.removeLayer(blocksLayer); blocksLayer = null;
-      btn.classList.remove('active'); btn.innerText = "🚫 Sperrungen"; return;
-    }
-
-    if (map.getZoom() < 10) {
-      alert("Bitte zoome etwas näher an die Strecke heran (z. B. auf eine Region/Bezirk), um Sperrungen abzufragen.");
-      return;
-    }
-
-    const bounds = map.getBounds();
-    const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
-    
-    const query = `[out:json][timeout:10];
-      (
-        way["highway"="construction"](${bbox});
-        way["highway"="closed"](${bbox});
-        way["access"="no"](${bbox});
-      );
-      out center;`;
-
-    const data = await fetchOverpassData(query, txt => btn.innerText = txt);
-
-    if (!data) {
-      btn.innerText = "🚫 Sperrungen";
-      alert("Die Server sind gerade ausgelastet. Bitte versuche es in ein paar Sekunden erneut oder zoome noch etwas näher heran.");
-      return;
-    }
-
-    blocksLayer = L.layerGroup();
-    let count = 0;
-
-    data.elements.forEach(el => {
-      const lat = el.lat || (el.center ? el.center.lat : null);
-      const lon = el.lon || (el.center ? el.center.lon : null);
-      if (lat && lon) {
-        const type = el.tags ? (el.tags.highway || el.tags.access || "Sperrung") : "Sperrung";
-        const name = (el.tags && el.tags.name) ? `<b>${el.tags.name}</b><br>` : '';
-        const marker = L.circleMarker([lat, lon], { radius: 8, fillColor: "#ea580c", color: "#9a3412", weight: 2, fillOpacity: 0.95 })
-          .bindPopup(`<b>🚫 Sperrung / Baustelle</b><br>${name}Typ: ${type}`);
-        blocksLayer.addLayer(marker); count++;
-      }
-    });
-
-    blocksLayer.addTo(map);
-    btn.classList.add('active'); 
-    btn.innerText = `🚫 Sperrungen (${count})`;
-  }
-
-  // OFFROAD-SUCHE
-  async function toggleOffroadSections() {
-    const btn = document.getElementById('btnOffroad');
-    if (offroadLayer) {
-      map.removeLayer(offroadLayer); offroadLayer = null;
-      btn.classList.remove('offroad-active'); btn.innerText = "🏕️ Offroad-Passagen"; return;
-    }
-
-    if (map.getZoom() < 11) {
-      alert("Zoome bitte noch ein Stück näher an deine Tagesetappe heran (z.B. auf ein Tal oder eine Stadt), damit die Abfrage schnell geladen werden kann.");
-      return;
-    }
-
-    const bounds = map.getBounds();
-    const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
-
-    const query = `[out:json][timeout:10];
-      (
-        way["highway"="track"](${bbox});
-        way["surface"~"unpaved|dirt|gravel|ground|grass|earth"](${bbox});
-      );
-      out geometry;`;
-
-    const data = await fetchOverpassData(query, txt => btn.innerText = txt);
-
-    if (!data) {
-      btn.innerText = "🏕️ Offroad-Passagen";
-      alert("Server derzeit überlastet. Bitte noch etwas näher heranzoomen und erneut klicken.");
-      return;
-    }
-
-    offroadLayer = L.layerGroup();
-    let count = 0;
-
-    data.elements.forEach(el => {
-      if (el.type === "way" && el.geometry) {
-        const coords = el.geometry.map(pt => [pt.lat, pt.lon]);
-        const surface = el.tags ? (el.tags.surface || el.tags.tracktype || "Schotter / Offroad") : "Offroad";
-        
-        const polyline = L.polyline(coords, {
-          color: '#facc15', // Neongelb
-          weight: 6,
-          opacity: 0.95
-        }).bindPopup(`<b>🏕️ Offroad-Passage</b><br>Belag: ${surface}`);
-
-        offroadLayer.addLayer(polyline);
-        count++;
-      }
-    });
-
-    offroadLayer.addTo(map);
-    btn.classList.add('offroad-active');
-    btn.innerText = `🏕️ Offroad (${count})`;
-  }
-
   // GPX PARSER
   function parseGPXText(xmlString) {
     if (layerControl) map.removeControl(layerControl);
@@ -383,9 +254,17 @@
     trackLayersMap = {}; 
 
     const osmTile = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+    const cyclOsmTile = L.tileLayer('https://{s}.tile-cyclosm.openstreetmap-fr.org/cyclosm/{z}/{x}/{y}.png', { maxZoom: 18 });
+    const topoTile = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17 });
     const satTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18 });
 
-    const baseMaps = { "🗺️ Straßenkarte (OSM)": osmTile, "🛰️ Satellit (Esri)": satTile };
+    const baseMaps = {
+      "🗺️ Standard (OSM)": osmTile,
+      "🚵 Offroad & Gravel (CyclOSM)": cyclOsmTile,
+      "🏔️ Topografisch (OpenTopo)": topoTile,
+      "🛰️ Satellit (Esri)": satTile
+    };
+
     const overlayMaps = {}; 
     const allBounds = [];
 
@@ -464,8 +343,6 @@
 
     document.getElementById('btnFire').addEventListener('click', toggleFireData);
     document.getElementById('btnRain').addEventListener('click', toggleRainRadar);
-    document.getElementById('btnBlocks').addEventListener('click', toggleRouteBlocks);
-    document.getElementById('btnOffroad').addEventListener('click', toggleOffroadSections);
 
     document.getElementById('fileInput').addEventListener('change', function(e) {
       const file = e.target.files[0];
