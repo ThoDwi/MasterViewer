@@ -62,9 +62,7 @@
       display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; padding-bottom: 8px;
       border-bottom: 1px solid #cbd5e1;
     }
-    .layer-action-row {
-      display: flex; gap: 6px;
-    }
+    .layer-action-row { display: flex; gap: 6px; }
     .layer-action-btn {
       background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155;
       padding: 5px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
@@ -114,6 +112,7 @@
   let layerControl;
   let trackLayersMap = {};
   let trackPointsList = []; 
+  let gpxOffroadSegments = []; // Stufe 1: Direkt aus GPX geladene Offroad-Abschnitte
   
   let fireLayer = null;
   let rainLayer = null;
@@ -125,12 +124,10 @@
   function initMap() {
     map = L.map('map').setView([42.6, 1.5], 7);
 
-    // 1. OpenStreetMap Kartenmaterial
     const osmTile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '© OpenStreetMap'
     }).addTo(map);
 
-    // 2. Satelliten-Kartenmaterial (Esri World Imagery)
     const satTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 18, attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics'
     });
@@ -141,11 +138,9 @@
     };
 
     layerControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
-
     setTimeout(() => { map.invalidateSize(); }, 200);
   }
 
-  // Steuerung für Bulk-Select & Einklapp-Button (Hide / Show)
   function addControlButtons() {
     const container = document.querySelector('.leaflet-control-layers');
     if (!container || document.getElementById('bulk-select-actions')) return;
@@ -166,7 +161,6 @@
       container.insertBefore(actionDiv, container.firstChild);
     }
 
-    // Toggle-Funktion für Hide / Show
     let isCollapsed = false;
     document.getElementById('toggleListBtn').addEventListener('click', () => {
       isCollapsed = !isCollapsed;
@@ -182,25 +176,18 @@
     document.getElementById('deselectAllBtn').addEventListener('click', () => {
       const checkboxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
       checkboxes.forEach(cb => {
-        if (cb.checked) {
-          cb.checked = false;
-          cb.dispatchEvent(new Event('click'));
-        }
+        if (cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('click')); }
       });
     });
 
     document.getElementById('selectAllBtn').addEventListener('click', () => {
       const checkboxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
       checkboxes.forEach(cb => {
-        if (!cb.checked) {
-          cb.checked = true;
-          cb.dispatchEvent(new Event('click'));
-        }
+        if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('click')); }
       });
     });
   }
 
-  // Abstands-Berechnung (Meter)
   function getDistanceMeters(lat1, lon1, lat2, lon2) {
     const R = 6371000;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -213,15 +200,12 @@
 
   function isPointOnTrack(lat, lon, maxMeters = 50) {
     if (trackPointsList.length === 0) return true;
-    for (let i = 0; i < trackPointsList.length; i += 2) {
-      if (getDistanceMeters(lat, lon, trackPointsList[i][0], trackPointsList[i][1]) <= maxMeters) {
-        return true;
-      }
+    for (let i = 0; i < trackPointsList.length; i += 3) {
+      if (getDistanceMeters(lat, lon, trackPointsList[i][0], trackPointsList[i][1]) <= maxMeters) return true;
     }
     return false;
   }
 
-  // Multi-Server Overpass Fetch
   async function fetchOverpassData(query) {
     const servers = [
       'https://overpass-api.de/api/interpreter',
@@ -232,9 +216,7 @@
       try {
         const res = await fetch(`${serverUrl}?data=${encodeURIComponent(query)}`);
         if (res.ok) return await res.json();
-      } catch (err) {
-        console.log("Server ausgelastet, teste nächsten...");
-      }
+      } catch (err) { console.log("Server ausgelastet, teste nächsten..."); }
     }
     return null;
   }
@@ -243,38 +225,29 @@
   async function toggleFireData() {
     const btn = document.getElementById('btnFire');
     if (fireLayer) {
-      map.removeLayer(fireLayer);
-      fireLayer = null;
-      btn.classList.remove('active');
-      return;
+      map.removeLayer(fireLayer); fireLayer = null;
+      btn.classList.remove('active'); return;
     }
-
     btn.innerText = "⏳ Lade Brände...";
     try {
       const res = await fetch('https://eonet.gsfc.nasa.gov/api/v3/events?category=wildfires&status=open');
       const data = await res.json();
-
       fireLayer = L.layerGroup();
       let count = 0;
-      
       data.events.forEach(event => {
         event.geometry.forEach(geo => {
           if (geo.type === "Point") {
             const marker = L.circleMarker([geo.coordinates[1], geo.coordinates[0]], {
               radius: 8, fillColor: "#dc2626", color: "#7f1d1d", weight: 2, fillOpacity: 0.85
             }).bindPopup(`<b>🔥 ${event.title}</b><br>Datum: ${new Date(geo.date).toLocaleDateString()}`);
-            fireLayer.addLayer(marker);
-            count++;
+            fireLayer.addLayer(marker); count++;
           }
         });
       });
-
       fireLayer.addTo(map);
-      btn.classList.add('active');
-      btn.innerText = `🔥 Live-Brände (${count})`;
+      btn.classList.add('active'); btn.innerText = `🔥 Live-Brände (${count})`;
     } catch (e) {
-      alert("Fehler beim Abrufen der Live-Daten.");
-      btn.innerText = "🔥 Live-Brände";
+      alert("Fehler beim Abrufen."); btn.innerText = "🔥 Live-Brände";
     }
   }
 
@@ -282,168 +255,119 @@
   async function toggleRainRadar() {
     const btn = document.getElementById('btnRain');
     if (rainLayer) {
-      map.removeLayer(rainLayer);
-      rainLayer = null;
-      btn.classList.remove('active');
-      return;
+      map.removeLayer(rainLayer); rainLayer = null;
+      btn.classList.remove('active'); return;
     }
-
     btn.innerText = "⏳ Lade Radar...";
     try {
       const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
       const data = await res.json();
       const latestPath = data.radar.past[data.radar.past.length - 1].path;
-
-      rainLayer = L.tileLayer(`https://tilecache.rainviewer.com${latestPath}/256/{z}/{x}/{y}/2/1_1.png`, {
-        opacity: 0.6, zIndex: 500
-      }).addTo(map);
-
-      btn.classList.add('active');
-      btn.innerText = "🌧️ Regen-Radar (Aktiv)";
+      rainLayer = L.tileLayer(`https://tilecache.rainviewer.com${latestPath}/256/{z}/{x}/{y}/2/1_1.png`, { opacity: 0.6, zIndex: 500 }).addTo(map);
+      btn.classList.add('active'); btn.innerText = "🌧️ Regen-Radar (Aktiv)";
     } catch (e) {
-      alert("Fehler beim Abrufen des Niederschlagsradars.");
-      btn.innerText = "🌧️ Regen-Radar";
+      alert("Fehler beim Abrufen."); btn.innerText = "🌧️ Regen-Radar";
     }
   }
 
-  // 3. SPERRUNGEN AUF ROUTE
+  // 3. SPERRUNGEN
   async function toggleRouteBlocks() {
     const btn = document.getElementById('btnBlocks');
     if (blocksLayer) {
-      map.removeLayer(blocksLayer);
-      blocksLayer = null;
-      btn.classList.remove('active');
-      btn.innerText = "🚫 Sperrungen";
-      return;
+      map.removeLayer(blocksLayer); blocksLayer = null;
+      btn.classList.remove('active'); btn.innerText = "🚫 Sperrungen"; return;
     }
-
     btn.innerText = "⏳ Prüfe Ausschnitt...";
     const bounds = map.getBounds();
     const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
-    
-    const query = `[out:json][timeout:15];
-      (
-        way["highway"="construction"](${bbox});
-        way["highway"="closed"](${bbox});
-        way["access"="no"](${bbox});
-      );
-      out center;`;
-
+    const query = `[out:json][timeout:15]; (way["highway"="construction"](${bbox}); way["highway"="closed"](${bbox}); way["access"="no"](${bbox});); out center;`;
     const data = await fetchOverpassData(query);
-
-    if (!data) {
-      alert("Datenbank überlastet. Zoome kurz etwas näher an deinen Tagestrack heran.");
-      btn.innerText = "🚫 Sperrungen";
-      return;
-    }
-
+    if (!data) { alert("Server ausgelastet. Zoome etwas näher heran."); btn.innerText = "🚫 Sperrungen"; return; }
     blocksLayer = L.layerGroup();
     let count = 0;
-
     data.elements.forEach(el => {
       const lat = el.lat || (el.center ? el.center.lat : null);
       const lon = el.lon || (el.center ? el.center.lon : null);
-
       if (lat && lon && isPointOnTrack(lat, lon, 50)) {
         const type = el.tags.highway || el.tags.access || "Sperrung";
         const name = el.tags.name ? `<b>${el.tags.name}</b><br>` : '';
-
-        const marker = L.circleMarker([lat, lon], {
-          radius: 8, fillColor: "#ea580c", color: "#9a3412", weight: 2, fillOpacity: 0.95
-        }).bindPopup(`<b>🚫 Sperrung auf Route</b><br>${name}Typ: ${type}`);
-
-        blocksLayer.addLayer(marker);
-        count++;
+        const marker = L.circleMarker([lat, lon], { radius: 8, fillColor: "#ea580c", color: "#9a3412", weight: 2, fillOpacity: 0.95 })
+          .bindPopup(`<b>🚫 Sperrung auf Route</b><br>${name}Typ: ${type}`);
+        blocksLayer.addLayer(marker); count++;
       }
     });
-
     blocksLayer.addTo(map);
-    btn.classList.add('active');
-    btn.innerText = `🚫 Sperrungen (${count})`;
+    btn.classList.add('active'); btn.innerText = `🚫 Sperrungen (${count})`;
   }
 
-  // 4. OFFROAD-PASSAGEN ERKENNEN & HERVORHEBEN
+  // 4. KOMBIVERFAHREN: ERST STUFE 1 (GPX), DANN STUFE 2 (SCHNELLE SEGMENT-SUCHE)
   async function toggleOffroadSections() {
     const btn = document.getElementById('btnOffroad');
     if (offroadLayer) {
-      map.removeLayer(offroadLayer);
-      offroadLayer = null;
-      btn.classList.remove('offroad-active');
-      btn.innerText = "Camping/Offroad";
-      return;
+      map.removeLayer(offroadLayer); offroadLayer = null;
+      btn.classList.remove('offroad-active'); btn.innerText = "🏕️ Offroad-Passagen"; return;
     }
 
-    btn.innerText = "⏳ Suche Offroad...";
+    offroadLayer = L.layerGroup();
+    let totalCount = 0;
+
+    // --- STUFE 1: Sofort-Prüfung aus GPX-Attributen (0 Sek) ---
+    btn.innerText = "⚡ Stufe 1: Prüfe GPX...";
+    if (gpxOffroadSegments.length > 0) {
+      gpxOffroadSegments.forEach(seg => {
+        const polyline = L.polyline(seg.coords, { color: '#facc15', weight: 8, opacity: 0.95 })
+          .bindPopup(`<b>🏕️ Offroad aus GPX</b><br>Typ: ${seg.type}`);
+        offroadLayer.addLayer(polyline);
+        totalCount++;
+      });
+    }
+
+    // --- STUFE 2: Ergänzende Blitz-Suche auf OSM (nur schmaler Sichtausschnitt) ---
+    btn.innerText = `⏳ Stufe 2: Ergänze OSM (${totalCount})...`;
     const bounds = map.getBounds();
     const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
 
-    // Abfrage für unbefestigte Wege, Feldwege & Pisten
-    const query = `[out:json][timeout:20];
+    // Abfrage beschränkt auf Pisten/Schotter im sichtbaren Bereich
+    const query = `[out:json][timeout:12];
       (
         way["highway"="track"](${bbox});
-        way["surface"~"unpaved|dirt|gravel|ground|grass|earth|compacted"](${bbox});
-        way["tracktype"](${bbox});
+        way["surface"~"unpaved|dirt|gravel|ground|grass|earth"](${bbox});
       );
       out geometry;`;
 
     const data = await fetchOverpassData(query);
 
-    if (!data) {
-      alert("Datenbank überlastet. Zoome etwas näher an die Etappen heran.");
-      btn.innerText = "🏕️ Offroad-Passagen";
-      return;
-    }
-
-    offroadLayer = L.layerGroup();
-    let count = 0;
-
-    data.elements.forEach(el => {
-      if (el.type === "way" && el.geometry) {
-        const coords = el.geometry.map(pt => [pt.lat, pt.lon]);
-        
-        // Prüfen ob die Passage auf der GPX liegt
-        const isOnTrack = coords.some(c => isPointOnTrack(c[0], c[1], 40));
-        
-        if (isOnTrack) {
-          const surface = el.tags.surface || el.tags.tracktype || "Unbefestigter Weg / Offroad";
-          const polyline = L.polyline(coords, {
-            color: '#facc15', // Leuchtendes Gelb/Neon für Offroad
-            weight: 7,
-            opacity: 0.95
-          }).bindPopup(`<b>🏕️ Offroad-Passage</b><br>Belag/Typ: ${surface}`);
-
-          offroadLayer.addLayer(polyline);
-          count++;
+    if (data && data.elements) {
+      data.elements.forEach(el => {
+        if (el.type === "way" && el.geometry) {
+          const coords = el.geometry.map(pt => [pt.lat, pt.lon]);
+          if (coords.some(c => isPointOnTrack(c[0], c[1], 40))) {
+            const surface = el.tags.surface || el.tags.tracktype || "Unbefestigter Weg";
+            const polyline = L.polyline(coords, { color: '#facc15', weight: 7, opacity: 0.9 })
+              .bindPopup(`<b>🏕️ Offroad (OSM)</b><br>Typ: ${surface}`);
+            offroadLayer.addLayer(polyline);
+            totalCount++;
+          }
         }
-      }
-    });
+      });
+    }
 
     offroadLayer.addTo(map);
     btn.classList.add('offroad-active');
-    btn.innerText = `🏕️ Offroad (${count} Abschnitte)`;
-
-    if (count === 0) {
-      alert("Im aktuellen Kartenausschnitt wurden keine bekannten Offroad-Wege direkt auf deiner Route gefunden.");
-    }
+    btn.innerText = `🏕️ Offroad (${totalCount} Abschnitte)`;
   }
 
-  // PARSER FÜR FAHRTAGE UND WEGPUNKTE
+  // PARSER MIT SPEICHERUNG VON STUFE-1-DATEN
   function parseGPXText(xmlString) {
     if (layerControl) map.removeControl(layerControl);
     Object.values(trackLayersMap).forEach(l => map.removeLayer(l));
-    trackLayersMap = {};
-    trackPointsList = [];
+    trackLayersMap = {}; trackPointsList = []; gpxOffroadSegments = [];
 
     const osmTile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
     const satTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18 });
 
-    const baseMaps = {
-      "🗺️ Straßenkarte (OSM)": osmTile,
-      "🛰️ Satellit (Esri)": satTile
-    };
-    
-    const overlayMaps = {};
-    const allBounds = [];
+    const baseMaps = { "🗺️ Straßenkarte (OSM)": osmTile, "🛰️ Satellit (Esri)": satTile };
+    const overlayMaps = {}; const allBounds = [];
 
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlString, "text/xml");
@@ -456,27 +380,49 @@
       const name = nameEl ? nameEl.textContent : `Tag ${i + 1}`;
       const color = colors[i % colors.length];
 
-      let trkpts = Array.from(track.getElementsByTagName("trkpt"));
-      if (trkpts.length === 0) trkpts = Array.from(track.getElementsByTagNameNS("*", "trkpt"));
+      let trksegments = Array.from(track.getElementsByTagName("trkseg"));
+      if (trksegments.length === 0) trksegments = Array.from(track.getElementsByTagNameNS("*", "trkseg"));
 
-      const coords = [];
-      trkpts.forEach(pt => {
-        const lat = parseFloat(pt.getAttribute("lat"));
-        const lon = parseFloat(pt.getAttribute("lon"));
-        if (!isNaN(lat) && !isNaN(lon)) {
-          coords.push([lat, lon]);
-          allBounds.push([lat, lon]);
-          trackPointsList.push([lat, lon]);
+      trksegments.forEach(seg => {
+        let trkpts = Array.from(seg.getElementsByTagName("trkpt"));
+        if (trkpts.length === 0) trkpts = Array.from(seg.getElementsByTagNameNS("*", "trkpt"));
+
+        const coords = [];
+        let currentOffroadChunk = [];
+
+        trkpts.forEach(pt => {
+          const lat = parseFloat(pt.getAttribute("lat"));
+          const lon = parseFloat(pt.getAttribute("lon"));
+          if (!isNaN(lat) && !isNaN(lon)) {
+            coords.push([lat, lon]);
+            allBounds.push([lat, lon]);
+            trackPointsList.push([lat, lon]);
+
+            // STUFE 1: GPX-Tags wie <type>track</type> oder <sym>Offroad</sym> auslesen
+            const typeEl = pt.getElementsByTagName("type")[0] || pt.getElementsByTagName("sym")[0];
+            const typeVal = typeEl ? typeEl.textContent.toLowerCase() : '';
+            
+            if (typeVal.includes('track') || typeVal.includes('unpaved') || typeVal.includes('offroad') || typeVal.includes('dirt')) {
+              currentOffroadChunk.push([lat, lon]);
+            } else if (currentOffroadChunk.length > 0) {
+              gpxOffroadSegments.push({ coords: [...currentOffroadChunk], type: typeVal || 'Unbefestigt' });
+              currentOffroadChunk = [];
+            }
+          }
+        });
+
+        if (currentOffroadChunk.length > 0) {
+          gpxOffroadSegments.push({ coords: currentOffroadChunk, type: 'Unbefestigt' });
+        }
+
+        if (coords.length > 0) {
+          const polyline = L.polyline(coords, { color: color, weight: 5, opacity: 0.9 }).addTo(map);
+          polyline.bindPopup(`<b>📍 ${name}</b>`);
+          const label = `<span style="color:${color}; font-weight:bold;">■</span> ${name}`;
+          overlayMaps[label] = polyline;
+          trackLayersMap['trk_' + i] = polyline;
         }
       });
-
-      if (coords.length > 0) {
-        const polyline = L.polyline(coords, { color: color, weight: 5, opacity: 0.9 }).addTo(map);
-        polyline.bindPopup(`<b>📍 ${name}</b>`);
-        const label = `<span style="color:${color}; font-weight:bold;">■</span> ${name}`;
-        overlayMaps[label] = polyline;
-        trackLayersMap['trk_' + i] = polyline;
-      }
     });
 
     let waypoints = Array.from(xmlDoc.getElementsByTagName("wpt"));
@@ -507,29 +453,11 @@
     layerControl = L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
     addControlButtons();
 
-    if (allBounds.length > 0) {
-      map.fitBounds(L.latLngBounds(allBounds), { padding: [50, 50] });
-    }
+    if (allBounds.length > 0) { map.fitBounds(L.latLngBounds(allBounds), { padding: [50, 50] }); }
   }
 
   window.onload = function() {
     initMap();
-
     document.getElementById('btnFire').addEventListener('click', toggleFireData);
     document.getElementById('btnRain').addEventListener('click', toggleRainRadar);
     document.getElementById('btnBlocks').addEventListener('click', toggleRouteBlocks);
-    document.getElementById('btnOffroad').addEventListener('click', toggleOffroadSections);
-
-    document.getElementById('fileInput').addEventListener('change', function(e) {
-      const file = e.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = e => parseGPXText(e.target.result);
-        reader.readAsText(file);
-      }
-    });
-  };
-</script>
-
-</body>
-</html>
