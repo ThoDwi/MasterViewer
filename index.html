@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Live & GPX Viewer</title>
+  <title>Live & GPX Master Viewer</title>
   
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
@@ -48,6 +48,24 @@
       height: calc(100vh - 55px);
       background: #cbd5e1;
     }
+
+    .leaflet-control-layers {
+      border-radius: 8px !important;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2) !important;
+      padding: 10px 12px !important;
+      font-size: 13px !important;
+      max-height: 70vh; overflow-y: auto;
+    }
+    .layer-action-btns {
+      display: flex; gap: 6px; margin-bottom: 8px; padding-bottom: 8px;
+      border-bottom: 1px solid #cbd5e1;
+    }
+    .layer-action-btn {
+      background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155;
+      padding: 5px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
+      cursor: pointer; flex: 1; text-align: center;
+    }
+    .layer-action-btn:hover { background: #0284c7; color: white; border-color: #0284c7; }
   </style>
 </head>
 <body>
@@ -56,9 +74,9 @@
   <h1>🗺️ Live & GPX Viewer</h1>
   
   <div class="btn-group">
-    <button class="live-btn" id="btnFire">🔥 Live-Brände (Pyrenäen/EU)</button>
+    <button class="live-btn" id="btnFire">🔥 Live-Brände</button>
     <button class="live-btn" id="btnRain">🌧️ Regen-Radar</button>
-    <button class="live-btn" id="btnGas">⛽ Tankstellen</button>
+    <button class="live-btn" id="btnBlocks">🚫 Sperrungen auf Route</button>
   </div>
 
   <label class="file-btn">
@@ -75,18 +93,17 @@
   let map;
   let layerControl;
   let trackLayersMap = {};
+  let currentTrackBounds = null;
   
   let fireLayer = null;
   let rainLayer = null;
-  let gasLayer = null;
+  let blocksLayer = null;
 
-  const colors = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#f59e0b'];
+  const colors = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#f59e0b', '#06b6d4'];
 
   function initMap() {
-    // Startkoordinaten: Pyrenäen
     map = L.map('map').setView([42.6, 1.5], 7);
 
-    // Standard OpenStreetMap Tile Layer
     const osmTile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '© OpenStreetMap'
@@ -95,8 +112,38 @@
     const baseMaps = { "OpenStreetMap": osmTile };
     layerControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
 
-    // Karten-Größe nach Laden abgleichen
     setTimeout(() => { map.invalidateSize(); }, 200);
+  }
+
+  function addBulkSelectButtons() {
+    const container = document.querySelector('.leaflet-control-layers-overlays');
+    if (!container || document.getElementById('bulk-select-actions')) return;
+
+    const actionDiv = document.createElement('div');
+    actionDiv.id = 'bulk-select-actions';
+    actionDiv.className = 'layer-action-btns';
+    actionDiv.innerHTML = `
+      <button class="layer-action-btn" id="deselectAllBtn">Alle abwählen</button>
+      <button class="layer-action-btn" id="selectAllBtn">Alle wählen</button>
+    `;
+
+    container.parentNode.insertBefore(actionDiv, container);
+
+    document.getElementById('deselectAllBtn').addEventListener('click', () => {
+      Object.values(trackLayersMap).forEach(layer => {
+        if (map.hasLayer(layer)) map.removeLayer(layer);
+      });
+      const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+      checkboxes.forEach(cb => cb.checked = false);
+    });
+
+    document.getElementById('selectAllBtn').addEventListener('click', () => {
+      Object.values(trackLayersMap).forEach(layer => {
+        if (!map.hasLayer(layer)) map.addLayer(layer);
+      });
+      const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+      checkboxes.forEach(cb => cb.checked = true);
+    });
   }
 
   // 1. LIVE-BRÄNDE
@@ -111,29 +158,30 @@
 
     btn.innerText = "⏳ Lade Brände...";
     try {
-      // USGS/EONET Live Fire Feed
-      const res = await fetch('https://eonet.gsfc.nasa.gov/api/v3/events?category=wildfires');
+      const res = await fetch('https://eonet.gsfc.nasa.gov/api/v3/events?category=wildfires&status=open');
       const data = await res.json();
 
       fireLayer = L.layerGroup();
+      let count = 0;
       
       data.events.forEach(event => {
         event.geometry.forEach(geo => {
           if (geo.type === "Point") {
             const marker = L.circleMarker([geo.coordinates[1], geo.coordinates[0]], {
-              radius: 9, fillColor: "#dc2626", color: "#7f1d1d", weight: 2, fillOpacity: 0.9
+              radius: 8, fillColor: "#dc2626", color: "#7f1d1d", weight: 2, fillOpacity: 0.85
             }).bindPopup(`<b>🔥 ${event.title}</b><br>Datum: ${new Date(geo.date).toLocaleDateString()}`);
             fireLayer.addLayer(marker);
+            count++;
           }
         });
       });
 
       fireLayer.addTo(map);
       btn.classList.add('active');
-      btn.innerText = "🔥 Live-Brände (Aktiv)";
+      btn.innerText = `🔥 Live-Brände (${count})`;
     } catch (e) {
-      alert("Fehler beim Abrufen der Live-Branddaten.");
-      btn.innerText = "🔥 Live-Brände (Pyrenäen/EU)";
+      alert("Fehler beim Abrufen der Live-Daten.");
+      btn.innerText = "🔥 Live-Brände";
     }
   }
 
@@ -165,56 +213,83 @@
     }
   }
 
-  // 3. TANKSTELLEN
-  async function fetchGasStations() {
-    const btn = document.getElementById('btnGas');
-    if (gasLayer) {
-      map.removeLayer(gasLayer);
-      gasLayer = null;
+  // 3. STRASSENSPERRUNGEN
+  async function toggleRouteBlocks() {
+    const btn = document.getElementById('btnBlocks');
+    if (blocksLayer) {
+      map.removeLayer(blocksLayer);
+      blocksLayer = null;
       btn.classList.remove('active');
+      btn.innerText = "🚫 Sperrungen auf Route";
       return;
     }
 
-    btn.innerText = "⏳ Suche Tankstellen...";
-    const bounds = map.getBounds();
+    const bounds = currentTrackBounds || map.getBounds();
+    btn.innerText = "⏳ Suche Sperrungen...";
     const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
-    const query = `[out:json];node["amenity"="fuel"](${bbox});out;`;
+    
+    const query = `[out:json];
+      (
+        node["barrier"](${bbox});
+        node["access"="no"](${bbox});
+        way["highway"="construction"](${bbox});
+        way["access"="no"](${bbox});
+      );
+      out center;`;
+    
     const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
 
     try {
       const res = await fetch(url);
       const data = await res.json();
 
-      gasLayer = L.layerGroup();
-      data.elements.forEach(node => {
-        const marker = L.circleMarker([node.lat, node.lon], {
-          radius: 6, fillColor: "#059669", color: "#065f46", weight: 2, fillOpacity: 0.9
-        }).bindPopup(`<b>⛽ ${node.tags.name || 'Tankstelle'}</b><br>${node.tags.operator || ''}`);
-        gasLayer.addLayer(marker);
+      blocksLayer = L.layerGroup();
+      let count = 0;
+
+      data.elements.forEach(el => {
+        const lat = el.lat || (el.center ? el.center.lat : null);
+        const lon = el.lon || (el.center ? el.center.lon : null);
+
+        if (lat && lon) {
+          const type = el.tags.barrier || el.tags.highway || "Sperrung/Einschränkung";
+          const marker = L.circleMarker([lat, lon], {
+            radius: 7, fillColor: "#ea580c", color: "#9a3412", weight: 2, fillOpacity: 0.9
+          }).bindPopup(`<b>🚫 Hindernis / Sperrung</b><br>Typ: ${type}<br>Name: ${el.tags.name || 'Keine Angabe'}`);
+          
+          blocksLayer.addLayer(marker);
+          count++;
+        }
       });
 
-      gasLayer.addTo(map);
+      blocksLayer.addTo(map);
       btn.classList.add('active');
-      btn.innerText = `⛽ Tankstellen (${data.elements.length})`;
+      btn.innerText = `🚫 Sperrungen (${count})`;
     } catch (e) {
-      alert("Fehler beim Suchen der Tankstellen.");
-      btn.innerText = "⛽ Tankstellen";
+      alert("Fehler beim Abrufen der Sperrungen.");
+      btn.innerText = "🚫 Sperrungen auf Route";
     }
   }
 
-  // GPX DATEIEN PARSEN
+  // PARSER FÜR FAHRTAGE UND WEGPUNKTE
   function parseGPXText(xmlString) {
+    if (layerControl) map.removeControl(layerControl);
+    Object.values(trackLayersMap).forEach(l => map.removeLayer(l));
+    trackLayersMap = {};
+
+    const osmTile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+    const baseMaps = { "OpenStreetMap": osmTile };
+    const overlayMaps = {};
+    const allBounds = [];
+
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlString, "text/xml");
 
     let tracks = Array.from(xmlDoc.getElementsByTagName("trk"));
     if (tracks.length === 0) tracks = Array.from(xmlDoc.getElementsByTagNameNS("*", "trk"));
 
-    const allBounds = [];
-
     tracks.forEach((track, i) => {
       let nameEl = track.getElementsByTagName("name")[0] || track.getElementsByTagNameNS("*", "name")[0];
-      const name = nameEl ? nameEl.textContent : `Track ${i + 1}`;
+      const name = nameEl ? nameEl.textContent : `Tag ${i + 1}`;
       const color = colors[i % colors.length];
 
       let trkpts = Array.from(track.getElementsByTagName("trkpt"));
@@ -232,11 +307,45 @@
 
       if (coords.length > 0) {
         const polyline = L.polyline(coords, { color: color, weight: 5, opacity: 0.9 }).addTo(map);
-        polyline.bindPopup(`<b><sup>📍</sup> ${name}</b>`);
+        polyline.bindPopup(`<b>📍 ${name}</b>`);
+        const label = `<span style="color:${color}; font-weight:bold;">■</span> ${name}`;
+        overlayMaps[label] = polyline;
+        trackLayersMap['trk_' + i] = polyline;
       }
     });
 
-    if (allBounds.length > 0) map.fitBounds(allBounds, { padding: [50, 50] });
+    let waypoints = Array.from(xmlDoc.getElementsByTagName("wpt"));
+    if (waypoints.length === 0) waypoints = Array.from(xmlDoc.getElementsByTagNameNS("*", "wpt"));
+
+    waypoints.forEach((wpt, i) => {
+      const lat = parseFloat(wpt.getAttribute("lat"));
+      const lon = parseFloat(wpt.getAttribute("lon"));
+      let nameEl = wpt.getElementsByTagName("name")[0] || wpt.getElementsByTagNameNS("*", "name")[0];
+      let descEl = wpt.getElementsByTagName("desc")[0] || wpt.getElementsByTagNameNS("*", "desc")[0];
+      
+      const name = nameEl ? nameEl.textContent : `Wegpunkt ${i + 1}`;
+      const desc = descEl ? descEl.textContent : '';
+
+      if (!isNaN(lat) && !isNaN(lon)) {
+        allBounds.push([lat, lon]);
+        const circleMarker = L.circleMarker([lat, lon], {
+          radius: 8, fillColor: "#dc2626", color: "#7f1d1d", weight: 2, fillOpacity: 0.9
+        }).bindPopup(`<b>${name}</b><br>${desc}`);
+
+        circleMarker.addTo(map);
+        const label = `<span style="color:#dc2626; font-weight:bold;">🔴</span> ${name}`;
+        overlayMaps[label] = circleMarker;
+        trackLayersMap['wpt_' + i] = circleMarker;
+      }
+    });
+
+    layerControl = L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
+    addBulkSelectButtons();
+
+    if (allBounds.length > 0) {
+      currentTrackBounds = L.latLngBounds(allBounds);
+      map.fitBounds(currentTrackBounds, { padding: [50, 50] });
+    }
   }
 
   window.onload = function() {
@@ -244,7 +353,7 @@
 
     document.getElementById('btnFire').addEventListener('click', toggleFireData);
     document.getElementById('btnRain').addEventListener('click', toggleRainRadar);
-    document.getElementById('btnGas').addEventListener('click', fetchGasStations);
+    document.getElementById('btnBlocks').addEventListener('click', toggleRouteBlocks);
 
     document.getElementById('fileInput').addEventListener('change', function(e) {
       const file = e.target.files[0];
