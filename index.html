@@ -104,28 +104,27 @@
       zoom: 7
     });
 
-    // Basiskarten definieren
+    // 100% verlässliche Basiskarten
     const osmTile = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; OpenStreetMap'
     }).addTo(map);
 
-    // Korrigierte CyclOSM URL
-    const cyclOsmTile = L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
-      maxZoom: 18, attribution: 'CyclOSM (Ideal für Offroad & Gravel)'
+    const topoEsriTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, attribution: 'Esri World Topo'
     });
 
-    const topoTile = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    const topoOpenTile = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
       maxZoom: 17, attribution: 'OpenTopoMap'
     });
 
     const satTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 18, attribution: 'Esri'
+      maxZoom: 18, attribution: 'Esri Satellite'
     });
 
     const baseMaps = {
       "🗺️ Standard (OSM)": osmTile,
-      "🚵 Offroad & Gravel (CyclOSM)": cyclOsmTile,
-      "🏔️ Topografisch (OpenTopo)": topoTile,
+      "🚵 Geländekarte / Trails (Esri Topo)": topoEsriTile,
+      "🏔️ Topografisch (OpenTopo)": topoOpenTile,
       "🛰️ Satellit (Esri)": satTile
     };
 
@@ -190,14 +189,14 @@
     trackLayersMap = {}; 
 
     const osmTile = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
-    const cyclOsmTile = L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', { maxZoom: 18 });
-    const topoTile = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17 });
+    const topoEsriTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+    const topoOpenTile = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17 });
     const satTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18 });
 
     const baseMaps = {
       "🗺️ Standard (OSM)": osmTile,
-      "🚵 Offroad & Gravel (CyclOSM)": cyclOsmTile,
-      "🏔️ Topografisch (OpenTopo)": topoTile,
+      "🚵 Geländekarte / Trails (Esri Topo)": topoEsriTile,
+      "🏔️ Topografisch (OpenTopo)": topoOpenTile,
       "🛰️ Satellit (Esri)": satTile
     };
 
