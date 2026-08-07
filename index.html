@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Live & GPX Viewer</title>
+  <title>Live & GPX Master Viewer</title>
   
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
@@ -53,6 +53,7 @@
       z-index: 1;
     }
 
+    /* Styling für das Ebenen-Menü & Buttons */
     .leaflet-top.leaflet-right {
       top: 10px !important;
       right: 10px !important;
@@ -63,7 +64,32 @@
       box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
       padding: 10px 12px !important;
       font-size: 13px !important;
-      max-height: 70vh; overflow-y: auto;
+      max-height: 75vh; overflow-y: auto;
+    }
+
+    .layer-action-btns {
+      display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; padding-bottom: 8px;
+      border-bottom: 1px solid #cbd5e1;
+    }
+    .layer-action-row { display: flex; gap: 6px; }
+    .layer-action-btn {
+      background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155;
+      padding: 5px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
+      cursor: pointer; flex: 1; text-align: center;
+    }
+    .layer-action-btn:hover { background: #0284c7; color: white; border-color: #0284c7; }
+
+    .toggle-list-btn {
+      background: #e2e8f0; color: #0f172a; font-weight: bold; border: 1px solid #94a3b8;
+      padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; text-align: center;
+      margin-bottom: 6px; display: block; width: 100%;
+    }
+
+    .layers-collapsed .leaflet-control-layers-overlays,
+    .layers-collapsed .leaflet-control-layers-base,
+    .layers-collapsed .leaflet-control-layers-separator,
+    .layers-collapsed .layer-action-row {
+      display: none !important;
     }
   </style>
 </head>
@@ -124,6 +150,51 @@
     layerControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
 
     setTimeout(() => { map.invalidateSize(); }, 300);
+  }
+
+  // BUTTONS "ALLE WÄHLEN / ABWÄHLEN / EINKLAPPEN" EINFÜGEN
+  function addControlButtons() {
+    const container = document.querySelector('.leaflet-control-layers');
+    if (!container || document.getElementById('bulk-select-actions')) return;
+
+    const actionDiv = document.createElement('div');
+    actionDiv.id = 'bulk-select-actions';
+    actionDiv.className = 'layer-action-btns';
+    actionDiv.innerHTML = `
+      <button class="toggle-list-btn" id="toggleListBtn">👁️ Liste einklappen</button>
+      <div class="layer-action-row">
+        <button class="layer-action-btn" id="deselectAllBtn">Alle abwählen</button>
+        <button class="layer-action-btn" id="selectAllBtn">Alle wählen</button>
+      </div>
+    `;
+
+    container.insertBefore(actionDiv, container.firstChild);
+
+    let isCollapsed = false;
+    document.getElementById('toggleListBtn').addEventListener('click', () => {
+      isCollapsed = !isCollapsed;
+      if (isCollapsed) {
+        container.classList.add('layers-collapsed');
+        document.getElementById('toggleListBtn').innerText = "👁️ Liste ausklappen";
+      } else {
+        container.classList.remove('layers-collapsed');
+        document.getElementById('toggleListBtn').innerText = "👁️ Liste einklappen";
+      }
+    });
+
+    document.getElementById('deselectAllBtn').addEventListener('click', () => {
+      const checkboxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
+      checkboxes.forEach(cb => {
+        if (cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('click')); }
+      });
+    });
+
+    document.getElementById('selectAllBtn').addEventListener('click', () => {
+      const checkboxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
+      checkboxes.forEach(cb => {
+        if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('click')); }
+      });
+    });
   }
 
   // LIVE-BRÄNDE
@@ -253,6 +324,7 @@
     });
 
     layerControl = L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
+    addControlButtons();
 
     if (allBounds.length > 0) { 
       map.fitBounds(L.latLngBounds(allBounds), { padding: [50, 50] }); 
