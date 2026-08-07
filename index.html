@@ -222,12 +222,14 @@
     }
   }
 
-  // REGEN-RADAR (Hart auf Zoom 12 begrenzt)
+  // REGEN-RADAR (Hart erzwungene Kachelumrechnung ab Zoom 12, damit kein "Not Supported"-Bild geladen wird)
   async function toggleRainRadar() {
     const btn = document.getElementById('btnRain');
     if (rainLayer) {
-      map.removeLayer(rainLayer); rainLayer = null;
-      btn.classList.remove('active'); return;
+      map.removeLayer(rainLayer); 
+      rainLayer = null;
+      btn.classList.remove('active'); 
+      return;
     }
     btn.innerText = "⏳ Lade Radar...";
     try {
@@ -238,10 +240,22 @@
       rainLayer = L.tileLayer(`https://tilecache.rainviewer.com${latestPath}/256/{z}/{x}/{y}/2/1_1.png`, { 
         opacity: 0.6, 
         zIndex: 500,
-        maxZoom: 12
-      }).addTo(map);
+        maxNativeZoom: 12,
+        maxZoom: 19
+      });
 
-      btn.classList.add('active'); btn.innerText = "🌧️ Regen-Radar (Aktiv)";
+      rainLayer.getTileUrl = function(coords) {
+        const z = Math.min(coords.z, 12);
+        const factor = Math.pow(2, coords.z - z);
+        const x = Math.floor(coords.x / factor);
+        const y = Math.floor(coords.y / factor);
+        return `https://tilecache.rainviewer.com${latestPath}/256/${z}/${x}/${y}/2/1_1.png`;
+      };
+
+      rainLayer.addTo(map);
+
+      btn.classList.add('active'); 
+      btn.innerText = "🌧️ Regen-Radar (Aktiv)";
     } catch (e) {
       btn.innerText = "🌧️ Regen-Radar";
     }
